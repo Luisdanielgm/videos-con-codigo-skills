@@ -1,0 +1,238 @@
+{
+ "cancion": {
+  "archivo": "recursos/musica/mixkit-272-drawing-the-sky.mp3",
+  "desde": 24.171,
+  "volumen": 0.9,
+  "entrada": 1.2,
+  "salida": 3
+ },
+ "efectos": [
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 0.562,
+   "db": -15.0
+  },
+  {
+   "archivo": "escritura/lapiz-corto.wav",
+   "en": 1.912,
+   "db": -15.6
+  },
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 3.262,
+   "db": -16.2
+  },
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 7.081,
+   "db": -15.0
+  },
+  {
+   "archivo": "escritura/lapiz-corto.wav",
+   "en": 8.431,
+   "db": -15.6
+  },
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 9.781,
+   "db": -16.2
+  },
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 14.325,
+   "db": -15.0
+  },
+  {
+   "archivo": "escritura/lapiz-corto.wav",
+   "en": 15.675,
+   "db": -15.6
+  },
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 17.025,
+   "db": -16.2
+  },
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 21.568,
+   "db": -15.0
+  },
+  {
+   "archivo": "escritura/lapiz-corto.wav",
+   "en": 22.918,
+   "db": -15.6
+  },
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 24.268,
+   "db": -16.2
+  },
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 28.449,
+   "db": -15.0
+  },
+  {
+   "archivo": "escritura/lapiz-corto.wav",
+   "en": 29.799,
+   "db": -15.6
+  },
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 31.149,
+   "db": -16.2
+  },
+  {
+   "archivo": "papel/hoja-pasar.wav",
+   "en": 6.478,
+   "db": -12
+  },
+  {
+   "archivo": "papel/hoja-pasar.wav",
+   "en": 13.721,
+   "db": -12
+  },
+  {
+   "archivo": "papel/hoja-pasar.wav",
+   "en": 20.965,
+   "db": -12
+  },
+  {
+   "archivo": "papel/hoja-pasar.wav",
+   "en": 28.208,
+   "db": -12
+  },
+  {
+   "archivo": "transicion/whoosh-rapido.wav",
+   "en": 26.639,
+   "db": -10,
+   "alinear": "pico"
+  },
+  {
+   "archivo": "impacto/impacto-epico.wav",
+   "en": 36.357,
+   "db": -5,
+   "alinear": "pico"
+  },
+  {
+   "archivo": "impacto/latido-grave.wav",
+   "en": 39.435,
+   "db": -7
+  },
+  {
+   "archivo": "transicion/whoosh-cine-rapido.wav",
+   "en": 40.28,
+   "db": -9,
+   "alinear": "pico"
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 45.622,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 45.754,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 45.887,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 46.02,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 46.153,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 46.286,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 46.418,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 46.551,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 46.684,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 46.817,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 46.95,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 47.082,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 47.215,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 47.348,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 47.481,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 47.614,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 47.746,
+   "db": -20
+  },
+  {
+   "archivo": "exito/kenney-glass-001.wav",
+   "en": 47.879,
+   "db": -20
+  },
+  {
+   "archivo": "exito/campana-logro.wav",
+   "en": 51.629,
+   "db": -13,
+   "alinear": "pico"
+  },
+  {
+   "archivo": "transicion/whoosh-rapido.wav",
+   "en": 54.707,
+   "db": -9,
+   "alinear": "pico"
+  },
+  {
+   "archivo": "impacto/kenney-soft-heavy-000.wav",
+   "en": 55.069,
+   "db": -12
+  }
+ ],
+ "duracion": 60.855,
+ "lufs": -14
+}

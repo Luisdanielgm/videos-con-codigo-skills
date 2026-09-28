@@ -1,0 +1,24 @@
+{
+  "voz": "supertonic:M5",
+  "velocidad": 1.0,
+  "pausa": 0.7,
+  "segmentos": [
+    {"id": "titulo", "texto": "¿Cómo aprende una red neuronal? Vamos a verlo paso a paso, sin matemáticas difíciles."},
+    {"id": "idea", "texto": "Una red neuronal es un programa que aprende con ejemplos. Igual que un niño aprende a reconocer los números viendo muchos, la red mira miles de dibujos hasta que aprende a distinguirlos."},
+    {"id": "numeros", "texto": "Pero hay un detalle: la computadora no ve un dibujo, ve números. Cada cuadrito de la imagen es un número: uno si está pintado, y cero si está vacío. Este siete son sesenta y cuatro números."},
+    {"id": "neurona", "texto": "La pieza básica de la red es la neurona. Una neurona recibe varios números. En este ejemplo, recibe tres."},
+    {"id": "pesos", "texto": "Cada número llega por una conexión que tiene un peso. El peso es como una perilla de volumen: dice cuánto importa esa entrada. Un peso grande la hace sonar fuerte, y un peso negativo la resta."},
+    {"id": "suma", "texto": "La neurona multiplica cada entrada por su peso. Por ejemplo, cero coma ocho por cero coma nueve da cero coma setenta y dos. Hace lo mismo con las otras dos, suma todo, y le agrega un pequeño ajuste. En total, cero coma noventa."},
+    {"id": "activacion", "texto": "Después, la neurona decide cuánto encenderse, como un regulador de luz. Si la suma es alta, brilla más. Si es baja, brilla menos. Pero nunca pasa del cien por ciento. Aquí se enciende un setenta y uno por ciento."},
+    {"id": "red", "texto": "Una red neuronal es esto mismo, repetido muchas veces: neuronas organizadas en capas, donde cada capa le pasa sus resultados a la siguiente."},
+    {"id": "partes", "texto": "A la izquierda entran los sesenta y cuatro números del dibujo, uno por neurona. En el medio hay capas ocultas, que buscan patrones. Y a la derecha hay diez neuronas, una por cada dígito, del cero al nueve. La que más se enciende es la respuesta de la red."},
+    {"id": "intento", "texto": "Al principio, los pesos son números al azar, así que la red no sabe nada. Le mostramos el siete, la información pasa de capa en capa, y la red responde: tres."},
+    {"id": "error", "texto": "Nosotros sabemos que era un siete. Así que medimos el error. La neurona del siete debía encenderse al cien por ciento, y solo llegó al dieciocho. La del tres debía quedar apagada, y se encendió al cuarenta y uno."},
+    {"id": "retro", "texto": "Ahora viene la parte clave. El error viaja hacia atrás, desde la salida hasta la entrada. En el camino, cada conexión recibe su parte de culpa: cuánto contribuyó a la equivocación. A esto se le llama retropropagación."},
+    {"id": "ajuste", "texto": "Con eso, cada peso se mueve un poquito en la dirección que reduce el error. Algunos suben y otros bajan. Solo un poquito, para no pasarse."},
+    {"id": "montana", "texto": "¿Y cómo sabe hacia dónde moverse? Imagina que estás en una montaña, con los ojos vendados, y quieres bajar al valle. Tanteas el suelo con el pie y das un paso hacia donde baja. Paso a paso, llegas abajo. El valle es donde el error es más pequeño. Esto se llama descenso de gradiente."},
+    {"id": "repetir", "texto": "Todo esto se repite con miles de dibujos distintos. Al principio, la red acierta muy poco. Pero con cada ejemplo ajusta sus pesos un poquito, y sus aciertos van subiendo."},
+    {"id": "resultado", "texto": "Después de ver sesenta mil ejemplos, le mostramos el mismo siete, y ahora responde: siete, con un noventa y tres por ciento de seguridad."},
+    {"id": "cierre", "texto": "En resumen: adivinar, medir el error, repartir la culpa hacia atrás, ajustar un poquito, y repetir. Eso es aprender, para una red neuronal."}
+  ]
+}

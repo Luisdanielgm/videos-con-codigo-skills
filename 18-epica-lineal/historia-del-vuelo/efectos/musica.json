@@ -1,0 +1,58 @@
+{
+ "bpm": 99.4,
+ "compases": 26,
+ "progresion": [
+  "Am",
+  "F",
+  "C",
+  "G"
+ ],
+ "secciones": [],
+ "silencio_antes": [],
+ "efectos": [
+  {
+   "tipo": "whoosh",
+   "pulso": 12,
+   "vol": 0.5
+  },
+  {
+   "tipo": "whoosh",
+   "pulso": 24,
+   "vol": 0.5
+  },
+  {
+   "tipo": "impacto",
+   "pulso": 36,
+   "vol": 0.7
+  },
+  {
+   "tipo": "whoosh",
+   "pulso": 48,
+   "vol": 0.6
+  },
+  {
+   "tipo": "riser",
+   "pulso": 56,
+   "pulsos": 4
+  },
+  {
+   "tipo": "impacto",
+   "pulso": 60
+  },
+  {
+   "tipo": "whoosh",
+   "pulso": 72,
+   "vol": 0.7
+  },
+  {
+   "tipo": "riser",
+   "pulso": 86,
+   "pulsos": 4
+  },
+  {
+   "tipo": "impacto",
+   "pulso": 90,
+   "vol": 0.8
+  }
+ ]
+}

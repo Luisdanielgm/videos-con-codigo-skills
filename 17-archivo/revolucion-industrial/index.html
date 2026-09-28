@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>La Revolución Industrial (archivo)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas#c { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="pulsos.js"></script>
+<script src="datos.js"></script>
+<script src="../../herramientas/reproductor.js"></script>
+<script>
+// Técnica 17: archivo real + motion graphics. Todo el material es de archivo verdadero (Wikimedia Commons,
+// dominio público; bajar.py) y las cifras son reales (Our World in Data). El código pone el resto: blanco y
+// negro con grano, rayas y parpadeo de película; una interfaz de datos encima (año que rueda, código de
+// tiempo, marcas de seguimiento, un gráfico que se dibuja, un medidor); titulares con glitch cromático y una
+// palabra de acento; cortes en cada compás de la música. Las películas de los Lumière se dibujan cuadro por
+// cuadro exacto: clips recodificados todo intra, cargados como blob y `seeked` antes de cada cuadro.
+const PU = window.PULSOS, DAT = window.DATOS;
+const W = 1920, H = 1080, TAU = Math.PI * 2, DUR = PU.total;
+const BEAT = 60 / PU.bpm, T = p => PU.inicio + p * BEAT;
+const out = document.getElementById('c');
+const ctx = out.getContext('2d');
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const suave = k => k * k * (3 - 2 * k);
+const salida = k => 1 - Math.pow(1 - k, 3);
+const ARCH = '../../recursos/archivo/revolucion-industrial/';
+const ACENTO = '#ffb347';
+const LETRA = '"Bahnschrift Condensed", Bahnschrift, Impact, sans-serif';
+const MONO = 'Consolas, "Courier New", monospace';
+
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const hash = n => { const r = mulberry(n * 7919 + 13); r(); return r(); };
+const cuadroPeli = t => Math.floor(Math.max(0, t) * 24);        // la película vieja va a 24 cuadros
+
+// ───────────── las escenas (p0/p1 en pulsos; un compás = 4 pulsos) ─────────────
+// cam: [cx, cy, ancho] del recorte de la fuente (fracciones), de → a. titulo: palabras; la marcada con * va en color.
+const ESCENAS = [
+  { p0: 0, p1: 8, img: 'coalbrookdale-1801.jpg', cam: [[.5, .5, 1], [.56, .46, .78]], anio: '1801', lugar: 'COALBROOKDALE, INGLATERRA · FUNDICIONES DE HIERRO', titulo: null },
+  { p0: 8, p1: 16, img: 'trenes-1830.png', cam: [[.3, .42, .55], [.7, .42, .55]], anio: '1830', lugar: 'FERROCARRIL LIVERPOOL–MANCHESTER', titulo: 'EL *VAPOR* SE MUEVE' },
+  { p0: 16, p1: 24, img: 'telares-1835.jpg', cam: [[.5, .5, 1], [.44, .56, .66]], anio: '1835', lugar: 'TALLER DE TELARES MECÁNICOS', titulo: 'LAS *MÁQUINAS* TEJEN',
+    marcas: [{ x: .37, y: .44, w: .12, h: .36, texto: 'TEJEDOR', p: 18 }, { x: .56, y: .5, w: .22, h: .28, texto: 'TELAR MECÁNICO', p: 20 }] },
+  { p0: 24, p1: 32, img: 'crystal-palace-1851.jpg', cam: [[.5, .5, .95], [.5, .56, .62]], anio: '1851', lugar: 'LONDRES · LA GRAN EXPOSICIÓN', titulo: 'EL MUNDO EN *VITRINA*' },
+  { p0: 32, p1: 40, img: 'manchester-1852.jpg', cam: [[.46, .44, 1], [.4, .42, .8]], anio: '1852', lugar: 'MANCHESTER DESDE KERSAL MOOR', titulo: 'CIUDADES DE *HUMO*', grafico: true },
+  { p0: 40, p1: 48, video: 'fabrica', anio: '1895', lugar: 'LYON · PELÍCULA DE LOS HERMANOS LUMIÈRE', titulo: 'SALIDA DE LA *FÁBRICA*' },
+  { p0: 48, p1: 56, video: 'tren', anio: '1897', lugar: 'LA CIOTAT · PELÍCULA DE LOS HERMANOS LUMIÈRE', titulo: 'MÁS *RÁPIDO*', medidor: true },
+  { p0: 56, p1: 60, img: 'hilandera-1909.jpg', cam: [[.55, .5, .9], [.56, .46, .6]], anio: '1909', lugar: 'EE. UU. · FOTO DE LEWIS HINE', titulo: '¿A QUÉ *COSTO*?', quieto: true,
+    marcas: [{ x: .5, y: .3, w: .14, h: .62, texto: 'HILANDERA', p: 57 }] },
+  { p0: 60, p1: 64, img: 'breaker-boys.jpg', cam: [[.5, .45, .95], [.46, .4, .72]], anio: '1910', lugar: 'EE. UU. · NIÑOS DE UNA MINA DE CARBÓN · LEWIS HINE', titulo: '¿A QUÉ *COSTO*?', quieto: true, sinEntrada: true },
+  { p0: 64, p1: 80, img: 'coalbrookdale-1801.jpg', cam: [[.58, .45, .62], [.52, .5, .95]], anio: '1801', lugar: 'COALBROOKDALE, INGLATERRA', titulo: 'EL MUNDO NO VOLVIÓ A SER EL *MISMO*', color: true, final: true },
+];
+const escenaEn = t => { let e = ESCENAS[0]; for (const s of ESCENAS) if (t >= T(s.p0)) e = s; return e; };
+
+// ───────────── material ─────────────
+const img = {}, vid = {};
+const cargarImg = n => new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok(img[n] = i); i.onerror = () => mal(new Error('falta ' + n + ' (correr bajar.py)')); i.src = ARCH + n; });
+async function cargarVideo(n) {
+  // blob: el servidor de Python no deja saltar dentro de un video; con el archivo entero en memoria, sí
+  const r = await fetch(ARCH + 'clips/' + n + '.mp4'); if (!r.ok) throw new Error('falta el clip ' + n + ' (correr preparar.py)');
+  const v = document.createElement('video'); v.muted = true; v.preload = 'auto'; v.src = URL.createObjectURL(await r.blob());
+  await new Promise(ok => v.addEventListener('loadeddata', ok, { once: true }));
+  vid[n] = v;
+}
+function tiempoClip(e, t) { const v = vid[e.video]; return clamp(t - T(e.p0), 0, v.duration - 1 / 24); }
+// antes de cada cuadro al exportar: el video al cuadro exacto, y esperar a que esté (seeked)
+async function antes(t) {
+  const e = escenaEn(t); if (!e.video) return;
+  const v = vid[e.video], x = (cuadroPeli(tiempoClip(e, t)) + .5) / 24;
+  if (Math.abs(v.currentTime - x) < 1e-3) return;
+  await new Promise(ok => { v.addEventListener('seeked', ok, { once: true }); v.currentTime = x; });
+}
+
+// ───────────── piezas de película ─────────────
+let GRANO, foto, fctx;
+function preparar() {
+  GRANO = [1, 2, 3, 4].map(s => {
+    const c = document.createElement('canvas'); c.width = c.height = 512;
+    const g = c.getContext('2d'), d = g.createImageData(512, 512), r = mulberry(s * 99);
+    for (let i = 0; i < d.data.length; i += 4) { const v = 128 + (r() - .5) * 120; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; }
+    g.putImageData(d, 0, 0); return c;
+  });
+  foto = document.createElement('canvas'); foto.width = W; foto.height = H; fctx = foto.getContext('2d');
+}
+
+// recorte de la fuente para la cámara [cx, cy, ancho] (16:9, sin salirse de la imagen)
+function recorte(im, [cx, cy, wf]) {
+  let w = wf * im.width, h = w * 9 / 16;
+  if (h > im.height) { h = im.height; w = h * 16 / 9; }
+  return { x: clamp(cx * im.width - w / 2, 0, im.width - w), y: clamp(cy * im.height - h / 2, 0, im.height - h), w, h };
+}
+const camara = (e, t) => { const k = suave(seg(t, T(e.p0), T(e.p1))); return e.cam[0].map((a, i) => lerp(a, e.cam[1][i], k)); };
+
+// el cuadro de archivo, en blanco y negro con parpadeo y vaivén de proyector
+function dibujarArchivo(e, t) {
+  const f = cuadroPeli(t), brillo = 1 + (hash(f) - .5) * .09;
+  const color = e.color ? seg(t, T(e.p0) + BEAT * 2, T(e.p0) + BEAT * 10) : 0;    // al final vuelve el color del fuego
+  fctx.save(); fctx.fillStyle = '#000'; fctx.fillRect(0, 0, W, H);
+  fctx.filter = `grayscale(${1 - color * .85}) sepia(${.18 * (1 - color)}) contrast(1.18) brightness(${brillo})`;
+  fctx.translate((hash(f + 7) - .5) * 3, (hash(f + 11) - .5) * 3);
+  if (e.video) {
+    const v = vid[e.video], s = Math.max(W / v.videoWidth, H / v.videoHeight);
+    const z = 1 + .06 * seg(t, T(e.p0), T(e.p1));
+    fctx.drawImage(v, (W - v.videoWidth * s * z) / 2, (H - v.videoHeight * s * z) / 2, v.videoWidth * s * z, v.videoHeight * s * z);
+  } else {
+    const im = img[e.img], r = recorte(im, camara(e, t));
+    fctx.drawImage(im, r.x, r.y, r.w, r.h, 0, 0, W, H);
+  }
+  fctx.restore();
+  ctx.drawImage(foto, 0, 0);
+}
+
+// rayas, polvo, grano y viñeta de película vieja
+function pelicula(t) {
+  const f = cuadroPeli(t), r = mulberry(f * 31 + 5);
+  ctx.save();
+  for (let i = 0, n = Math.floor(r() * 3); i < n; i++) {
+    ctx.strokeStyle = `rgba(${r() < .5 ? '255,255,255' : '0,0,0'},${.15 + r() * .25})`; ctx.lineWidth = 1 + r() * 1.5;
+    const x = r() * W; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + (r() - .5) * 30, H); ctx.stroke();
+  }
+  for (let i = 0; i < 6; i++) { ctx.fillStyle = `rgba(0,0,0,${.3 + r() * .4})`; ctx.beginPath(); ctx.ellipse(r() * W, r() * H, 1 + r() * 4, 1 + r() * 3, r() * 3, 0, TAU); ctx.fill(); }
+  ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = .22;
+  ctx.fillStyle = ctx.createPattern(GRANO[f % 4], 'repeat'); ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+  const v = ctx.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, H * 1.0);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.72)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+}
+
+// glitch del corte: canales corridos y franjas desplazadas durante 5 cuadros
+function glitch(t, fuerza) {
+  if (fuerza <= 0) return;
+  const r = mulberry(cuadroPeli(t) * 17 + 3);
+  ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = .55 * fuerza;
+  ctx.filter = 'sepia(1) saturate(8) hue-rotate(-50deg)'; ctx.drawImage(out, 14 * fuerza, 0);
+  ctx.filter = 'sepia(1) saturate(8) hue-rotate(150deg)'; ctx.drawImage(out, -14 * fuerza, 0);
+  ctx.restore();
+  for (let i = 0; i < 7; i++) { const y = r() * H, h = 10 + r() * 70, dx = (r() - .5) * 160 * fuerza; ctx.drawImage(out, 0, y, W, h, dx, y, W, h); }
+}
+
+// ───────────── interfaz de datos ─────────────
+function esquinas(x, y, w, h, l, color = 'rgba(255,255,255,.75)', grosor = 3) {
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = grosor; ctx.beginPath();
+  for (const [a, b, sx, sy] of [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]]) { ctx.moveTo(a, b + sy * l); ctx.lineTo(a, b); ctx.lineTo(a + sx * l, b); }
+  ctx.stroke(); ctx.restore();
+}
+function hud(t, e) {
+  const i = ESCENAS.indexOf(e);
+  esquinas(60, 50, W - 120, H - 100, 46);
+  ctx.save(); ctx.font = `600 24px ${MONO}`; ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.textBaseline = 'middle';
+  if (Math.floor(t * 2) % 2 === 0) { ctx.fillStyle = '#ff4a3a'; ctx.beginPath(); ctx.arc(104, 96, 9, 0, TAU); ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,.8)'; }
+  ctx.fillText(`ARCHIVO  ${String(Math.min(i, ESCENAS.length - 2) + 1).padStart(2, '0')}/${ESCENAS.length - 1}`, 124, 96);
+  const f = cuadroPeli(t), tc = [Math.floor(f / 86400), Math.floor(f / 1440) % 60, Math.floor(f / 24) % 60, f % 24].map(n => String(n).padStart(2, '0')).join(':');
+  ctx.textAlign = 'right'; ctx.fillText('TC ' + tc, W - 104, 96);
+  // regla del borde de la película que corre
+  ctx.fillStyle = 'rgba(255,255,255,.35)';
+  for (let y = -40; y < H; y += 40) { const yy = y + (t * 160) % 40; ctx.fillRect(78, yy, y % 200 === 0 ? 22 : 12, 2); }
+  ctx.restore();
+  // línea de escaneo cada dos compases
+  const k = ((t - PU.inicio) / (BEAT * 8)) % 1, ys = k * H;
+  const g = ctx.createLinearGradient(0, ys - 60, 0, ys); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(255,255,255,.07)');
+  ctx.fillStyle = g; ctx.fillRect(0, ys - 60, W, 60); ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(0, ys, W, 1.5);
+  anio(t, e);
+}
+
+// año que rueda como un cuentakilómetros al cambiar de escena
+function anio(t, e) {
+  const i = ESCENAS.indexOf(e), prev = i > 0 ? ESCENAS[i - 1].anio : e.anio;
+  const k = salida(seg(t, T(e.p0), T(e.p0) + .45));
+  ctx.save(); ctx.font = `700 120px ${LETRA}`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  const x = W - 104, y = H - 96;
+  ctx.beginPath(); ctx.rect(x - 400, y - 110, 420, 135); ctx.clip();
+  const n = Math.max(e.anio.length, prev.length);
+  const a = prev.padStart(n, ' '), b = e.anio.padStart(n, ' '), cw = ctx.measureText('0').width;
+  for (let j = 0; j < n; j++) {
+    const xx = x - (n - 1 - j) * cw - cw / 2;                    // cada cifra centrada en su casilla
+    ctx.fillStyle = 'rgba(255,255,255,.92)';
+    if (a[j] === b[j] || k >= 1) { ctx.fillText(b[j], xx, y); continue; }
+    const kk = salida(clamp(k * 1.4 - j * .12));
+    ctx.fillText(a[j], xx, y - kk * 120); ctx.fillText(b[j], xx, y + (1 - kk) * 120);
+  }
+  ctx.restore();
+  ctx.save(); ctx.font = `600 22px ${MONO}`; ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(255,255,255,.6)';
+  ctx.fillText('AÑO', W - 104, H - 222); ctx.restore();
+}
+
+// marcas de seguimiento sobre la imagen (en coordenadas de la fuente, siguen a la cámara)
+function marcas(t, e) {
+  if (!e.marcas) return;
+  const im = img[e.img], r = recorte(im, camara(e, t)), sx = W / r.w;
+  for (const m of e.marcas) {
+    const k = salida(seg(t, T(m.p), T(m.p) + .35)); if (k <= 0) continue;
+    const x = (m.x * im.width - r.x) * sx, y = (m.y * im.height - r.y) * sx, w = m.w * im.width * sx, h = m.h * im.height * sx;
+    const cx = x + w / 2, cy = y + h / 2, ww = w * lerp(1.6, 1, k), hh = h * lerp(1.6, 1, k);
+    esquinas(cx - ww / 2, cy - hh / 2, ww, hh, 26, `rgba(255,179,71,${.9 * k})`, 3);
+    ctx.save(); ctx.globalAlpha = k; ctx.font = `600 22px ${MONO}`; ctx.fillStyle = ACENTO; ctx.textBaseline = 'bottom';
+    ctx.fillText('■ ' + m.texto, cx - ww / 2, cy - hh / 2 - 10); ctx.restore();
+  }
+}
+
+// gráfico de la población del Reino Unido (cifras reales, Our World in Data)
+function grafico(t, e) {
+  if (!e.grafico) return;
+  const s = DAT.poblacion.serie, k = suave(seg(t, T(e.p0) + BEAT, T(e.p1) - BEAT * 1.5));
+  const x0 = 1080, y0 = 250, w = 700, h = 380, max = 45e6;
+  const aparece = salida(seg(t, T(e.p0) + BEAT * .5, T(e.p0) + BEAT * 1.5));
+  ctx.save(); ctx.globalAlpha = aparece;
+  ctx.fillStyle = 'rgba(8,8,8,.62)'; ctx.fillRect(x0 - 40, y0 - 90, w + 80, h + 170);
+  esquinas(x0 - 40, y0 - 90, w + 80, h + 170, 22, 'rgba(255,255,255,.6)', 2);
+  ctx.font = `600 24px ${MONO}`; ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillText('POBLACIÓN · ' + DAT.poblacion.pais.toUpperCase(), x0, y0 - 48);
+  ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 1; ctx.font = `20px ${MONO}`; ctx.fillStyle = 'rgba(255,255,255,.5)';
+  for (let m = 0; m <= 40e6; m += 10e6) { const y = y0 + h - m / max * h; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0 + w, y); ctx.stroke(); ctx.fillText(m / 1e6 + ' M', x0 + w + 8, y + 6); }
+  const X = a => x0 + (a - s[0][0]) / (s[s.length - 1][0] - s[0][0]) * w, Y = p => y0 + h - p / max * h;
+  [1820, 1860, 1900].forEach(a => ctx.fillText(a, X(a) - 24, y0 + h + 30));
+  const n = Math.max(1, Math.floor(k * (s.length - 1)));
+  ctx.strokeStyle = ACENTO; ctx.lineWidth = 5; ctx.lineJoin = 'round'; ctx.beginPath();
+  for (let i = 0; i <= n; i++) i ? ctx.lineTo(X(s[i][0]), Y(s[i][1])) : ctx.moveTo(X(s[i][0]), Y(s[i][1]));
+  ctx.stroke();
+  const [a, p] = s[n]; ctx.fillStyle = ACENTO; ctx.beginPath(); ctx.arc(X(a), Y(p), 9, 0, TAU); ctx.fill();
+  ctx.font = `700 64px ${LETRA}`; ctx.fillStyle = '#fff';
+  ctx.fillText((p / 1e6).toFixed(1).replace('.', ',') + ' millones', x0, y0 + h + 100);
+  ctx.font = `600 26px ${MONO}`; ctx.fillStyle = ACENTO; ctx.fillText(String(a), x0 + 440, y0 + h + 92);
+  ctx.font = `16px ${MONO}`; ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fillText('Fuente: ' + DAT.poblacion.fuente, x0, y0 + h + 130);
+  ctx.restore();
+}
+
+// medidor circular (decorativo, sin cifras: sólo marca que la escena acelera)
+function medidor(t, e) {
+  if (!e.medidor) return;
+  const k = salida(seg(t, T(e.p0), T(e.p0) + BEAT * 5)), x = 1600, y = 330, r = 130;
+  ctx.save(); ctx.globalAlpha = salida(seg(t, T(e.p0), T(e.p0) + .3));
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.arc(x, y, r, Math.PI * .75, Math.PI * 2.25); ctx.stroke();
+  for (let i = 0; i <= 20; i++) { const a = Math.PI * .75 + i / 20 * Math.PI * 1.5, l = i % 5 ? 12 : 24; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * (r - l), y + Math.sin(a) * (r - l)); ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); ctx.stroke(); }
+  ctx.lineWidth = 10; ctx.strokeStyle = ACENTO; ctx.beginPath(); ctx.arc(x, y, r - 34, Math.PI * .75, Math.PI * .75 + k * Math.PI * 1.5 * (.96 + (hash(cuadroPeli(t)) - .5) * .03)); ctx.stroke();
+  ctx.font = `600 22px ${MONO}`; ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.textAlign = 'center'; ctx.fillText('VELOCIDAD', x, y + 12);
+  ctx.restore();
+}
+
+// titular con máscara que sube, glitch cromático al entrar y una palabra de acento
+function titular(t, e) {
+  const t0 = T(e.p0) + (e.final ? BEAT * 2 : BEAT * .5);
+  const kIn = e.sinEntrada ? 1 : salida(seg(t, t0, t0 + .45));
+  ctx.save();
+  const xs = 130, yb = e.final ? 560 : H - 150;
+  ctx.font = `700 ${e.final ? 108 : 132}px ${LETRA}`; ctx.textBaseline = 'alphabetic';
+  const lineas = [[]]; let ancho = 0;
+  for (const p of (e.titulo || '').split(' ')) { const w = ctx.measureText(p.replace(/\*/g, '') + ' ').width; if (ancho + w > 1500 && lineas[lineas.length - 1].length) { lineas.push([]); ancho = 0; } lineas[lineas.length - 1].push(p); ancho += w; }
+  const alto = e.final ? 112 : 136, ytop = yb - 20 - (lineas.length - 1) * alto;
+  // rótulo: año y lugar, que se escribe letra por letra encima del titular
+  ctx.font = `600 26px ${MONO}`; ctx.fillStyle = 'rgba(255,255,255,.85)';
+  const rot = e.lugar.slice(0, Math.floor(e.lugar.length * clamp(seg(t, T(e.p0), T(e.p0) + .6))));
+  ctx.fillText(`${e.anio} · ${rot}${Math.floor(t * 4) % 2 ? '▌' : ''}`, xs, e.titulo ? ytop - alto * .92 : yb);
+  if (e.titulo) {
+    ctx.font = `700 ${e.final ? 108 : 132}px ${LETRA}`;
+    ctx.beginPath(); ctx.rect(0, ytop - alto, W, (lineas.length) * alto + 30); ctx.clip();
+    const glitchK = e.sinEntrada ? 0 : 1 - seg(t, t0, t0 + .3);
+    const extra = hash(cuadroPeli(t) * 3) > .93 ? .5 : 0;             // de vez en cuando, un tirón
+    lineas.forEach((l, li) => {
+      let x = xs; const y = ytop + li * alto + (1 - kIn) * alto * 1.2;
+      for (const p of l) {
+        const acento = p.includes('*'), s = p.replace(/\*/g, '');
+        const g = Math.max(glitchK, extra * (acento ? 1 : 0));
+        if (g > 0) {
+          const dx = (hash(cuadroPeli(t) + x) - .5) * 30 * g;
+          ctx.globalCompositeOperation = 'screen';
+          ctx.fillStyle = 'rgba(255,40,60,.9)'; ctx.fillText(s, x + dx + 8 * g, y);
+          ctx.fillStyle = 'rgba(40,220,255,.9)'; ctx.fillText(s, x - dx - 8 * g, y);
+          ctx.globalCompositeOperation = 'source-over';
+        }
+        ctx.fillStyle = acento ? ACENTO : '#fff'; ctx.fillText(s, x, y);
+        x += ctx.measureText(s + ' ').width;
+      }
+    });
+  }
+  ctx.restore();
+}
+
+// título del principio: «LA REVOLUCIÓN / INDUSTRIAL»
+function portada(t) {
+  if (t > T(8)) return;
+  const a = salida(seg(t, T(1), T(1) + .5)), b = salida(seg(t, T(6), T(6) + .35));
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.font = `600 30px ${MONO}`; ctx.fillStyle = `rgba(255,255,255,${.85 * a})`; ctx.fillText('UN DOCUMENTAL DE ARCHIVO', W / 2, 380);
+  ctx.font = `700 190px ${LETRA}`;
+  const g = 1 - seg(t, T(1), T(1) + .3);
+  const pinta = (txt, y, color, k, gg) => {
+    ctx.save(); ctx.beginPath(); ctx.rect(0, y - 180, W, 210); ctx.clip();
+    const yy = y + (1 - k) * 200;
+    if (gg > 0) { ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = 'rgba(255,40,60,.9)'; ctx.fillText(txt, W / 2 + 12 * gg, yy); ctx.fillStyle = 'rgba(40,220,255,.9)'; ctx.fillText(txt, W / 2 - 12 * gg, yy); ctx.globalCompositeOperation = 'source-over'; }
+    ctx.fillStyle = color; ctx.fillText(txt, W / 2, yy); ctx.restore();
+  };
+  pinta('LA REVOLUCIÓN', 580, '#fff', a, g);
+  pinta('INDUSTRIAL', 760, ACENTO, b, 1 - seg(t, T(6), T(6) + .3));
+  ctx.restore();
+}
+
+function creditos(t) {
+  const k = salida(seg(t, T(70), T(71)));
+  if (k <= 0) return;
+  ctx.save(); ctx.globalAlpha = k;
+  const g = ctx.createLinearGradient(0, H - 330, 0, H); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(.4, 'rgba(0,0,0,.75)'); g.addColorStop(1, 'rgba(0,0,0,.85)');
+  ctx.fillStyle = g; ctx.fillRect(0, H - 330, W, 330);
+  ctx.textAlign = 'left'; ctx.font = `20px ${MONO}`; ctx.fillStyle = 'rgba(255,255,255,.8)';
+  [
+    'ARCHIVO (Wikimedia Commons, dominio público): hermanos Lumière (1895, 1897) · P. J. de Loutherbourg (1801)',
+    'T. Allom y J. Tingle (1835) · J. McNeven (1851) · W. Wyld (1852) · Lewis Hine (1909, 1910) · grabado de ca. 1830',
+    'DATOS: Our World in Data (Gapminder, HYDE, ONU), CC BY 4.0',
+  ].forEach((l, i) => ctx.fillText(l, 130, H - 250 + i * 32));
+  ctx.restore();
+}
+
+// ───────────── el cuadro ─────────────
+function render(t) {
+  const e = escenaEn(t);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (e.video && !exportando) {                                   // al mirar en vivo, el video sigue como puede
+    const v = vid[e.video], x = tiempoClip(e, t);
+    if (Math.abs(v.currentTime - x) > .12 && !v.seeking) v.currentTime = x;
+  }
+  dibujarArchivo(e, t);
+  pelicula(t);
+  // cada escena entra con 5 cuadros de glitch (menos en las quietas)
+  const g = (1 - seg(t, T(e.p0), T(e.p0) + 5 / 30)) * (e.quieto ? .5 : 1) * (e.p0 === 0 ? 0 : 1);
+  glitch(t, g);
+  marcas(t, e); grafico(t, e); medidor(t, e);
+  hud(t, e);
+  portada(t);
+  if (e.titulo || e.p0 > 0) titular(t, e);
+  creditos(t);
+}
+
+const exportando = /exportar|capturas/.test(location.search);
+Promise.all([...new Set(ESCENAS.filter(e => e.img).map(e => e.img))].map(cargarImg).concat(['fabrica', 'tren'].map(cargarVideo))).then(() => {
+  preparar();
+  Reproductor.iniciar({ canvas: out, render, duracion: DUR, audio: 'musica.wav', desenfoque: 2, antes });
+}).catch(e => { console.error(e); ctx.fillStyle = '#fff'; ctx.font = '40px sans-serif'; ctx.fillText(e.message, 80, 540); });
+</script>
+</body>
+</html>

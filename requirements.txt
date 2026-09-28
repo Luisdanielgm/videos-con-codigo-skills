@@ -1,0 +1,10 @@
+# Entorno principal (.venv, Python 3.12). Versiones con las que se probó todo.
+# Supertonic y Manim van en entornos aparte (ver README).
+numpy==2.5.3
+scipy==1.18.1
+pillow==12.3.0
+soundfile==0.14.0
+pycairo==1.29.1
+kokoro-onnx==0.6.1
+piper-tts==1.8.0
+playwright==1.63.0

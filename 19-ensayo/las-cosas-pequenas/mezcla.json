@@ -1,0 +1,48 @@
+{
+ "cancion": {
+  "archivo": "recursos/musica/mixkit-759-vastness.mp3",
+  "desde": 0.37,
+  "volumen": 0.55,
+  "entrada": 2,
+  "salida": 4
+ },
+ "voz": "narracion.wav",
+ "efectos": [
+  {
+   "archivo": "viento/brisa-arboles.wav",
+   "en": 0,
+   "db": -30
+  },
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 7.074,
+   "db": -22
+  },
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 8.574,
+   "db": -22
+  },
+  {
+   "archivo": "escritura/pluma-papel.wav",
+   "en": 10.074,
+   "db": -22
+  },
+  {
+   "archivo": "papel/hoja-pasar.wav",
+   "en": 14.072,
+   "db": -20
+  },
+  {
+   "archivo": "viento/brisa-arboles.wav",
+   "en": 19.896,
+   "db": -28
+  },
+  {
+   "archivo": "viento/brisa-arboles.wav",
+   "en": 25.379,
+   "db": -31
+  }
+ ],
+ "lufs": -14
+}

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Las cosas pequeñas (ensayo)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas#c { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="tiempos.js"></script>
+<script src="../../herramientas/reproductor.js"></script>
+<script>
+// Técnica 19: ensayo cinematográfico. Tomas fotorrealistas (generadas aparte, una por frase) con cámara lenta,
+// formato de cine 2,39:1, gradación cálida, grano y vaivén de película, y lo que la foto no tiene lo pone el
+// código: polvo en el rayo de sol, vapor del café, lluvia en el vidrio, destello del atardecer, la lámpara que
+// respira. Narración (voz M5) y casi nada de texto: la frase en la franja negra y el título al final.
+const TI = window.TIEMPOS, W = 1920, H = 1080, TAU = Math.PI * 2, DUR = TI.total;
+const out = document.getElementById('c'), ctx = out.getContext('2d');
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x)), lerp = (a, b, k) => a + (b - a) * k;
+const seg = (t, a, b) => clamp((t - a) / (b - a)), suave = k => k * k * (3 - 2 * k);
+const BARRA = Math.round((H - W / 2.39) / 2);                 // franjas negras del 2,39:1
+const SERIF = '"Georgia Pro", Georgia, serif';
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+
+// una toma por frase: dónde mira la cámara (fracciones de la imagen), cuánto se acerca y qué efecto lleva
+const TOMAS = [
+  { id: 'ventana', img: '01-ventana', de: [.5, .5, 1.04], a: [.56, .47, 1.14], efecto: 'polvo', rayo: [.3, .12, .5, .62] },
+  { id: 'manos', img: '02-manos', de: [.5, .52, 1.12], a: [.47, .55, 1.04], efecto: 'bokeh' },
+  { id: 'cafe', img: '03-cafe', de: [.45, .52, 1.05], a: [.4, .55, 1.16], efecto: 'vapor', taza: [.35, .55] },
+  { id: 'gorrion', img: '04-gorrion', de: [.5, .5, 1.03], a: [.5, .48, 1.1], efecto: 'bokeh' },
+  { id: 'atardecer', img: '05-atardecer', de: [.45, .55, 1.14], a: [.52, .52, 1.02], efecto: 'sol', sol: [.69, .43] },
+  { id: 'noche', img: '06-noche', de: [.5, .5, 1.02], a: [.5, .5, 1.12], efecto: 'lampara', lampara: [.24, .33] },
+];
+// cada toma empieza un poco antes de su frase y termina cuando empieza la siguiente
+const inicio = i => i === 0 ? -1 : TI.seg[TOMAS[i].id].inicio - .9;
+const fin = i => i === TOMAS.length - 1 ? DUR + 1 : inicio(i + 1);
+const img = {};
+const cargar = n => new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok(img[n] = i); i.onerror = () => mal(new Error('falta imagenes/' + n + '.png')); i.src = 'imagenes/' + n + '.png'; });
+
+let GRANO, capa, cctx;
+function preparar() {
+  GRANO = [1, 2, 3, 4].map(s => { const c = document.createElement('canvas'); c.width = c.height = 512; const g = c.getContext('2d'), d = g.createImageData(512, 512), r = mulberry(s * 71); for (let i = 0; i < d.data.length; i += 4) { const v = 128 + (r() - .5) * 70; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; } g.putImageData(d, 0, 0); return c; });
+  capa = document.createElement('canvas'); capa.width = W; capa.height = H; cctx = capa.getContext('2d');
+}
+
+// la toma: encuadre lento + efectos propios; devuelve cómo se ubica la imagen (para poner cosas encima)
+function toma(g, i, t) {
+  const T_ = TOMAS[i], im = img[T_.img], k = suave(seg(t, inicio(i), fin(i)));
+  const [cx, cy, z] = [0, 1, 2].map(j => lerp(T_.de[j], T_.a[j], k));
+  const s = Math.max(W / im.width, H / im.height) * z, w = im.width * s, h = im.height * s;
+  const x = W / 2 - cx * w, y = H / 2 - cy * h;
+  const bx = clamp(x, W - w, 0), by = clamp(y, H - h, 0);
+  g.save(); g.filter = 'saturate(.92) contrast(1.06) brightness(1.02)'; g.drawImage(im, bx, by, w, h); g.restore();
+  const P = (fx, fy) => [bx + fx * w, by + fy * h];
+  const r = mulberry(i * 99 + 1);
+  if (T_.efecto === 'polvo') {                                    // motas que flotan dentro del rayo de sol
+    const [x0, y0, x1, y1] = T_.rayo, a = P(x0, y0), b = P(x1, y1);
+    g.save(); g.globalCompositeOperation = 'lighter';
+    for (let n = 0; n < 140; n++) {
+      const u = r(), v = r(), fase = r() * TAU, vel = .02 + r() * .05;
+      const px = lerp(a[0], b[0], u) + Math.sin(t * .4 + fase) * 30 + (v - .5) * 220, py = lerp(a[1], b[1], u) + ((t * vel * 60 + v * 400) % 400) - 200;
+      const brillo = .25 + .75 * Math.max(0, Math.sin(t * 1.3 + fase));
+      g.fillStyle = `rgba(255,236,200,${.5 * brillo})`; g.beginPath(); g.arc(px, py, .8 + r() * 1.8, 0, TAU); g.fill();
+    }
+    g.restore();
+  } else if (T_.efecto === 'vapor') {                             // hilos de vapor que suben de la taza
+    const [tx, ty] = P(...T_.taza);
+    g.save(); g.globalCompositeOperation = 'screen'; g.filter = 'blur(6px)';
+    for (let n = 0; n < 5; n++) {
+      const fase = n * 1.7; g.beginPath();
+      for (let j = 0; j <= 30; j++) { const u = j / 30, yy = ty - u * 330, xx = tx + (n - 2) * 14 + Math.sin(u * 5 + t * 1.4 + fase) * (10 + u * 40); j ? g.lineTo(xx, yy) : g.moveTo(xx, yy); }
+      g.strokeStyle = `rgba(255,248,235,${.16})`; g.lineWidth = 14 - n; g.stroke();
+    }
+    g.restore();
+    g.save(); g.globalAlpha = .18; g.strokeStyle = '#dfe8ff'; g.lineWidth = 1.2;            // lluvia en el vidrio
+    for (let n = 0; n < 60; n++) { const px = W * (.45 + r() * .55), py = ((t * (260 + r() * 200)) + r() * H) % H; g.beginPath(); g.moveTo(px, py); g.lineTo(px - 3, py + 26); g.stroke(); }
+    g.restore();
+  } else if (T_.efecto === 'sol') {                               // el sol respira y deja un destello
+    const [sx, sy] = P(...T_.sol), pul = .85 + .15 * Math.sin(t * .9);
+    g.save(); g.globalCompositeOperation = 'screen';
+    const rg = g.createRadialGradient(sx, sy, 0, sx, sy, 520 * pul); rg.addColorStop(0, 'rgba(255,190,120,.45)'); rg.addColorStop(1, 'rgba(255,140,60,0)');
+    g.fillStyle = rg; g.fillRect(0, 0, W, H);
+    [[.35, 60], [.62, 34], [1.25, 90]].forEach(([f, rr]) => { const fx = lerp(sx, W - sx, f), fy = lerp(sy, H - sy, f); const q = g.createRadialGradient(fx, fy, 0, fx, fy, rr); q.addColorStop(0, 'rgba(255,200,150,.14)'); q.addColorStop(1, 'rgba(255,200,150,0)'); g.fillStyle = q; g.fillRect(fx - rr, fy - rr, rr * 2, rr * 2); });
+    g.restore();
+  } else if (T_.efecto === 'lampara') {                           // la luz de la lámpara respira
+    const [lx, ly] = P(...T_.lampara), f = .9 + .1 * Math.sin(t * 2.1) * Math.sin(t * .7);
+    g.save(); g.globalCompositeOperation = 'screen'; const rg = g.createRadialGradient(lx, ly, 0, lx, ly, 600 * f);
+    rg.addColorStop(0, 'rgba(255,190,110,.32)'); rg.addColorStop(1, 'rgba(255,150,70,0)'); g.fillStyle = rg; g.fillRect(0, 0, W, H); g.restore();
+  } else if (T_.efecto === 'bokeh') {                             // luces desenfocadas que flotan
+    g.save(); g.globalCompositeOperation = 'screen';
+    for (let n = 0; n < 16; n++) { const px = (r() * W + t * (8 + r() * 14)) % (W + 200) - 100, py = r() * H, rr = 30 + r() * 70; const q = g.createRadialGradient(px, py, rr * .6, px, py, rr); q.addColorStop(0, `rgba(255,210,150,${.05 + r() * .06})`); q.addColorStop(1, 'rgba(255,210,150,0)'); g.fillStyle = q; g.fillRect(px - rr, py - rr, rr * 2, rr * 2); }
+    g.restore();
+  }
+}
+
+// cambio de toma: fundido con un destello de luz cálida que cruza (una «fuga de luz» de película)
+function fuga(t, a, dur = 1.1) {
+  const k = seg(t, a, a + dur); if (k <= 0 || k >= 1) return;
+  const x = lerp(-500, W + 500, suave(k)), al = Math.sin(k * Math.PI);
+  ctx.save(); ctx.globalCompositeOperation = 'screen';
+  const g = ctx.createRadialGradient(x, H * .45, 0, x, H * .45, 900); g.addColorStop(0, `rgba(255,170,90,${.55 * al})`); g.addColorStop(.5, `rgba(255,110,50,${.22 * al})`); g.addColorStop(1, 'rgba(255,80,30,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); ctx.restore();
+}
+
+function render(t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.filter = 'none';
+  const f = Math.floor(Math.max(0, t) * 24);
+  // vaivén de proyector, muy chico
+  ctx.save(); ctx.translate((hash(f) - .5) * 1.6, (hash(f + 3) - .5) * 1.6);
+  let i = 0; while (i < TOMAS.length - 1 && t >= fin(i)) i++;
+  toma(ctx, i, t);
+  // fundido hacia la toma siguiente (se dibuja encima con alfa creciente)
+  const sig = i + 1;
+  if (sig < TOMAS.length) { const k = seg(t, fin(i) - .9, fin(i)); if (k > 0) { cctx.clearRect(0, 0, W, H); toma(cctx, sig, t); ctx.globalAlpha = suave(k); ctx.drawImage(capa, 0, 0); ctx.globalAlpha = 1; } }
+  ctx.restore();
+  for (let j = 1; j < TOMAS.length; j++) fuga(t, fin(j - 1) - 1);
+  // gradación: calor en las luces, un poco de azul en las sombras, viñeta
+  ctx.save(); ctx.globalCompositeOperation = 'soft-light'; ctx.fillStyle = 'rgba(255,170,90,.18)'; ctx.fillRect(0, 0, W, H); ctx.restore();
+  const v = ctx.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, H); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.55)'); ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = .14; ctx.fillStyle = ctx.createPattern(GRANO[f % 4], 'repeat'); ctx.fillRect(0, 0, W, H); ctx.restore();
+  // formato de cine y la frase en la franja de abajo
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, BARRA); ctx.fillRect(0, H - BARRA, W, BARRA);
+  for (const id of TI.orden) {
+    const s = TI.seg[id], k = Math.min(seg(t, s.inicio - .2, s.inicio + .4), 1 - seg(t, s.inicio + s.dur + .6, s.inicio + s.dur + 1.2));
+    if (k <= 0) continue;
+    ctx.save(); ctx.globalAlpha = k; ctx.font = `italic 400 34px ${SERIF}`; ctx.fillStyle = '#efe6d8'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(s.texto, W / 2, H - BARRA / 2); ctx.restore();
+  }
+  // el título, al final, sobre la noche
+  const kt = seg(t, DUR - 4.2, DUR - 3.2) * (1 - seg(t, DUR - .6, DUR));
+  if (kt > 0) {
+    ctx.save(); ctx.globalAlpha = kt; ctx.textAlign = 'center'; ctx.fillStyle = '#f5ecdc'; ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 24;
+    ctx.font = `400 30px ${SERIF}`; ctx.letterSpacing = '12px'; ctx.fillText('UN ENSAYO', W / 2, H / 2 - 70);
+    ctx.font = `italic 400 110px ${SERIF}`; ctx.letterSpacing = '0px'; ctx.fillText('Las cosas pequeñas', W / 2, H / 2 + 40); ctx.restore();
+  }
+  // entrada y salida desde negro
+  const negro = Math.max(1 - seg(t, 0, 1.2), seg(t, DUR - .6, DUR));
+  if (negro > 0) { ctx.fillStyle = `rgba(0,0,0,${negro})`; ctx.fillRect(0, 0, W, H); }
+}
+
+Promise.all(TOMAS.map(s => cargar(s.img))).then(() => { preparar(); return document.fonts.ready; })
+  .then(() => Reproductor.iniciar({ canvas: out, render, duracion: DUR, audio: 'mezcla.wav', desenfoque: 2 }))
+  .catch(e => { console.error(e); ctx.fillStyle = '#fff'; ctx.font = '40px sans-serif'; ctx.fillText(e.message, 80, 540); });
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# reglas y parches de la guardia: nombran lo que no se publica
+privado/
+
+# entorno y descargas grandes (cada quien los baja: ver README)
+.venv/
+modelos/
+externos/
+recursos/
+biblioteca/*.blend*
+__pycache__/
+
+# salidas
+render/
+*.webm
+*/*/narracion.wav
+*/*/narracion_lenta.wav
+*/*/mezcla.wav
+*/*/mezcla_v*.wav
+*/*/musica.wav
+*/*/efectos/musica.wav
+*/*/efectos_sinteticos/
+*/*/imagenes/crudas/
+*/*/codex_*.log

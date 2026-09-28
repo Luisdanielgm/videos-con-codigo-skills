@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>¿Cómo aprende una red neuronal? (3D)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #070a12; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas#c { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="tiempos.js"></script>
+<script src="../../herramientas/reproductor.js"></script>
+<script type="module">
+// Técnica 2: la escena 3D la dibuja three.js en un lienzo WebGL aparte; cada cuadro se copia al
+// lienzo final y encima se dibujan en 2D los textos (etiquetas proyectadas, títulos, subtítulos).
+import * as THREE from '../../herramientas/vendor/three.module.min.js';
+
+const TI = window.TIEMPOS, DUR = TI.total;
+const { clamp, lerp, seg, ease, A, D, F, P, SIG, vis } = Reproductor.ayudantes(TI);
+const W = 1920, H = 1080;
+const out = document.getElementById('c');
+const ctx = out.getContext('2d');
+
+const C = { ink: '#e8ecf4', muted: '#8a94a8', pos: '#4ea1ff', neg: '#ff8a3d', good: '#3ddc97', bad: '#ff5470', gold: '#ffd166' };
+const COL = { pos: new THREE.Color(C.pos), neg: new THREE.Color(C.neg), bad: new THREE.Color(C.bad), gold: new THREE.Color(C.gold), good: new THREE.Color(C.good), dim: new THREE.Color('#2a3550'), ink: new THREE.Color(C.ink) };
+function rng(seed) { return () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296; }
+const sig = z => 1 / (1 + Math.exp(-z));
+
+// ───────────── three.js ─────────────
+const gl = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+gl.setPixelRatio(1); gl.setSize(W, H, false);
+gl.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#070a12');
+scene.fog = new THREE.Fog('#070a12', 30, 70);
+const cam = new THREE.PerspectiveCamera(42, W / H, .1, 200);
+scene.add(new THREE.HemisphereLight('#9fb4ff', '#1a1020', 1.1));
+const sol = new THREE.DirectionalLight('#ffffff', 1.6); sol.position.set(6, 10, 8); scene.add(sol);
+
+// Cada escena es un grupo con materiales propios, para fundirlo sin tocar a los demás.
+function grupo() { const g = new THREE.Group(); g.userData.mats = []; scene.add(g); return g; }
+function mat(g, props) {
+  const m = new THREE.MeshStandardMaterial({ transparent: true, ...props });
+  m.userData.base = props.opacity ?? 1; g.userData.mats.push(m); return m;
+}
+function lmat(g, props) {
+  const m = new THREE.LineBasicMaterial({ transparent: true, ...props });
+  m.userData.base = props.opacity ?? 1; g.userData.mats.push(m); return m;
+}
+function fundir(g, a) {
+  g.visible = a > .002;
+  for (const m of g.userData.mats) m.opacity = m.userData.base * a;
+}
+const esfera = new THREE.SphereGeometry(1, 32, 20);
+
+// ───────────── textos en 2D sobre la escena ─────────────
+let etiquetas = [];
+function etiqueta(s, pos, size = 30, color = C.ink, alpha = 1, weight = 600, dx = 0, dy = 0, align = 'center') {
+  if (alpha > .01) etiquetas.push({ s, pos: pos.clone(), size, color, alpha, weight, dx, dy, align });
+}
+function texto2D(s, x, y, size, color = C.ink, align = 'center', alpha = 1, weight = 600) {
+  if (alpha <= .01) return;
+  ctx.globalAlpha = alpha; ctx.fillStyle = color;
+  ctx.font = `${weight} ${size}px system-ui, "Segoe UI", sans-serif`;
+  ctx.textAlign = align; ctx.textBaseline = 'middle';
+  ctx.fillText(s, x, y); ctx.globalAlpha = 1;
+}
+function panel(x, y, w, h, alpha) {
+  if (alpha <= .01) return;
+  ctx.globalAlpha = alpha * .88; ctx.fillStyle = '#10172a'; ctx.strokeStyle = '#2c3854'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, 16); ctx.fill(); ctx.stroke(); ctx.globalAlpha = 1;
+}
+function dibujarEtiquetas() {
+  const v = new THREE.Vector3();
+  for (const e of etiquetas) {
+    v.copy(e.pos).project(cam);
+    if (v.z > 1) continue;
+    // guardia: ninguna etiqueta entra en la franja del título (arriba) ni en la del subtítulo (abajo)
+    const x = clamp((v.x + 1) / 2 * W + e.dx, 60, W - 60), y = clamp((1 - v.y) / 2 * H + e.dy, 135, 935);
+    // sombra para leer sobre cualquier fondo
+    ctx.globalAlpha = e.alpha * .8; ctx.fillStyle = '#05070d';
+    ctx.font = `${e.weight} ${e.size}px system-ui, "Segoe UI", sans-serif`;
+    ctx.textAlign = e.align; ctx.textBaseline = 'middle';
+    ctx.fillText(e.s, x + 2, y + 2);
+    texto2D(e.s, x, y, e.size, e.color, e.align, e.alpha, e.weight);
+  }
+  etiquetas = [];
+}
+
+// ───────────── texturas de dígitos (tarjetas) ─────────────
+const FONT = {
+  0: ['01110', '10001', '10011', '10101', '11001', '10001', '01110'], 1: ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
+  2: ['01110', '10001', '00001', '00010', '00100', '01000', '11111'], 3: ['11110', '00001', '00001', '01110', '00001', '00001', '11110'],
+  4: ['00010', '00110', '01010', '10010', '11111', '00010', '00010'], 5: ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
+  6: ['00110', '01000', '10000', '11110', '10001', '10001', '01110'], 7: ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
+  8: ['01110', '10001', '10001', '01110', '10001', '10001', '01110'], 9: ['01110', '10001', '10001', '01111', '00001', '00010', '01100']
+};
+const TEX_DIG = Object.keys(FONT).map(d => {
+  const c = document.createElement('canvas'); c.width = 140; c.height = 180;
+  const x = c.getContext('2d'); x.fillStyle = '#f4f1ea'; x.fillRect(0, 0, 140, 180);
+  x.fillStyle = '#1d2436';
+  FONT[d].forEach((row, i) => [...row].forEach((b, j) => { if (b === '1') x.fillRect(20 + j * 20, 20 + i * 20, 18, 18); }));
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+});
+
+// ═════════════ escena 0: título ═════════════
+const gTit = grupo();
+const titPts = (() => { const r = rng(3); return Array.from({ length: 46 }, () => { const u = r() * 2 - 1, a = r() * Math.PI * 2, s = Math.sqrt(1 - u * u); return new THREE.Vector3(s * Math.cos(a), u, s * Math.sin(a)).multiplyScalar(6); }); })();
+{
+  const m = mat(gTit, { color: '#e8ecf4', emissive: '#ffd166', emissiveIntensity: .6 });
+  for (const p of titPts) { const s = new THREE.Mesh(esfera, m); s.scale.setScalar(.14); s.position.copy(p); gTit.add(s); }
+  const pos = [];
+  for (let i = 0; i < titPts.length; i++) for (let j = i + 1; j < titPts.length; j++) if (titPts[i].distanceTo(titPts[j]) < 4) pos.push(...titPts[i].toArray(), ...titPts[j].toArray());
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  gTit.add(new THREE.LineSegments(geo, lmat(gTit, { color: '#4ea1ff', opacity: .35 })));
+}
+function escenaTitulo(t) {
+  const a = vis(t, 'titulo', 'titulo'); fundir(gTit, a);
+  if (a <= 0) return 0;
+  gTit.rotation.y = t * .25; gTit.rotation.x = .3;
+  const k = P(t, 'titulo', 0, .25);
+  return { a, cam: [0, 0, lerp(22, 17, ease(seg(t, 0, 5)))], mira: [0, 0, 0], dibujar2D: () => {
+    texto2D('¿Cómo aprende', W / 2, H / 2 - 70, 100, C.ink, 'center', a * k, 800);
+    texto2D('una red neuronal?', W / 2, H / 2 + 45, 100, C.gold, 'center', a * k, 800);
+    texto2D('paso a paso, sin matemáticas difíciles  ·  en 3D', W / 2, H / 2 + 150, 36, C.muted, 'center', a * P(t, 'titulo', .5, .8), 500);
+  } };
+}
+
+// ═════════════ escena 1: aprender con ejemplos ═════════════
+const gIdea = grupo();
+const tarjetas = [];
+const cajaIdea = new THREE.Group(); gIdea.add(cajaIdea);
+{
+  for (let i = 0; i < 40; i++) {
+    const m = new THREE.MeshBasicMaterial({ map: TEX_DIG[i % 10], transparent: true, side: THREE.DoubleSide });
+    m.userData.base = 1; gIdea.userData.mats.push(m);
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.4), m); gIdea.add(p); tarjetas.push(p);
+  }
+  const caja = new THREE.Mesh(new THREE.BoxGeometry(4.2, 3.2, 3.2), mat(gIdea, { color: '#1a2440', opacity: .35, emissive: '#ffd166', emissiveIntensity: .05 }));
+  const borde = new THREE.LineSegments(new THREE.EdgesGeometry(caja.geometry), lmat(gIdea, { color: '#ffd166' }));
+  cajaIdea.add(caja, borde);
+  const mn = mat(gIdea, { color: '#cfd8ea', emissive: '#4ea1ff', emissiveIntensity: .3 });
+  const capas = [3, 4, 4, 2];
+  capas.forEach((n, l) => { for (let i = 0; i < n; i++) { const s = new THREE.Mesh(esfera, mn); s.scale.setScalar(.2); s.position.set(-1.4 + l * .95, (i - (n - 1) / 2) * .6, 0); cajaIdea.add(s); } });
+  cajaIdea.position.set(6, 0, 0);
+}
+function escenaIdea(t) {
+  const a = vis(t, 'idea', 'idea'); fundir(gIdea, a);
+  if (a <= 0) return 0;
+  const t0 = A('idea'), v = 3.4;
+  let vistos = 0;
+  tarjetas.forEach((p, i) => {
+    const x = -13 + (t - t0) * v - i * 1.25;
+    const dentro = x > 4.2;
+    if (dentro) vistos++;
+    p.visible = x > -14 && !dentro;
+    const y = Math.sin(i * 2.3) * 1.4, z = Math.cos(i * 1.7) * 1.2;
+    const k = clamp((4.2 - x) / 2);                 // se achica al entrar
+    p.position.set(Math.min(x, 4.2), y * k, z * k);
+    p.rotation.set(Math.sin(t + i) * .3, Math.sin(t * .7 + i) * .5, Math.sin(t * .5 + i * 3) * .2);
+    p.scale.setScalar(.4 + .6 * k);
+  });
+  cajaIdea.rotation.y = Math.sin(t * .4) * .25 - .3;
+  return { a, cam: [-1, 1.5, 15], mira: [0, 0, 0], dibujar2D: () => {
+    etiqueta(`dibujos vistos: ${vistos}`, new THREE.Vector3(6, 2.5, 0), 32, C.ink, a * P(t, 'idea', .3, .45));
+    etiqueta('red neuronal', new THREE.Vector3(6, -2.4, 0), 36, C.gold, a, 700);
+    texto2D('aprende mirando muchos ejemplos,', 120, 800, 40, C.ink, 'left', a * P(t, 'idea', .25, .4), 600);
+    texto2D('como un niño que aprende los números', 120, 855, 40, C.muted, 'left', a * P(t, 'idea', .35, .5), 500);
+  } };
+}
+
+// ═════════════ escena 2: la imagen son números (1 = cubo alto) ═════════════
+const SEVEN = ['00000000', '01111110', '00000010', '00000100', '00001000', '00010000', '00100000', '00000000'];
+const PIX = SEVEN.join('').split('').map(Number);
+const gNum = grupo();
+const cubos = [];
+{
+  const mOn = mat(gNum, { color: '#f4f1ea', emissive: '#ffd166', emissiveIntensity: .25 });
+  const mOff = mat(gNum, { color: '#27324d' });
+  const geo = new THREE.BoxGeometry(.9, 1, .9); geo.translate(0, .5, 0);
+  PIX.forEach((on, k) => {
+    const r = Math.floor(k / 8), c = k % 8;
+    const b = new THREE.Mesh(geo, on ? mOn : mOff); b.position.set((c - 3.5), 0, (r - 3.5)); gNum.add(b); cubos.push(b);
+  });
+}
+function escenaNumeros(t) {
+  const a = vis(t, 'numeros', 'numeros'); fundir(gNum, a);
+  if (a <= 0) return 0;
+  const kDraw = P(t, 'numeros', 0, .25), kNum = P(t, 'numeros', .4, .62), kTilt = P(t, 'numeros', .66, .86);
+  let n = 0;
+  cubos.forEach((b, k) => {
+    const on = PIX[k]; if (on) n++;
+    const alto = on && n <= kDraw * 11 ? lerp(.12, 1.6, kTilt) : .12;
+    b.scale.y = alto;
+  });
+  // cámara: primero desde arriba (se ve el dibujo), luego de costado (se ven las alturas)
+  const camPos = [lerp(0, 8.5, kTilt), lerp(19, 9, kTilt), lerp(.01, 11, kTilt)];
+  return { a, cam: camPos, mira: [0, lerp(0, .6, kTilt), 0], dibujar2D: () => {
+    PIX.forEach((on, k) => {
+      const r = Math.floor(k / 8), c = k % 8;
+      // al inclinar la cámara los ceros se tapan con los cubos altos: se van y quedan sólo los unos
+      const kc = clamp(kNum * 64 - k) * (on ? 1 : 1 - kTilt);
+      etiqueta(on ? '1' : '0', new THREE.Vector3(c - 3.5, cubos[k].scale.y + .15, r - 3.5), 26, on ? C.gold : C.muted, a * kc, 800);
+    });
+    texto2D('pintado = 1   ·   vacío = 0', W / 2, 160, 40, C.ink, 'center', a * kNum * (1 - P(t, 'numeros', .74, .8)), 700);
+    texto2D('1 = cubo alto   ·   0 = cubo bajo   =   64 números', W / 2, 160, 40, C.gold, 'center', a * P(t, 'numeros', .8, .92), 800);
+  } };
+}
+
+// ═════════════ escena 3: una neurona ═════════════
+const N1 = { x: [0.8, 0.2, 0.5], w: [0.9, -0.6, 0.4], b: 0.1 };
+N1.z = N1.x.reduce((s, x, i) => s + x * N1.w[i], N1.b); N1.y = sig(N1.z);
+const gNeu = grupo();
+const IN3 = [new THREE.Vector3(-6, 2.6, 0), new THREE.Vector3(-6, 0, 0), new THREE.Vector3(-6, -2.6, 0)];
+const NEU = new THREE.Vector3(0, 0, 0), FOCO = new THREE.Vector3(5.2, 0, 0);
+const cables = [], perillas = [];
+let neurona, foco, luzFoco, cableSalida;
+{
+  const mIn = mat(gNeu, { color: '#1c2745', emissive: '#4ea1ff', emissiveIntensity: .15 });
+  IN3.forEach((p, i) => {
+    const s = new THREE.Mesh(esfera, mIn); s.scale.setScalar(.75); s.position.copy(p); gNeu.add(s);
+    const w = N1.w[i];
+    const cm = mat(gNeu, { color: w > 0 ? C.pos : C.neg, emissive: w > 0 ? C.pos : C.neg, emissiveIntensity: .4 });
+    const dir = new THREE.Vector3().subVectors(NEU, p);
+    const cyl = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 16), cm);
+    cyl.position.copy(p).addScaledVector(dir, .5); cyl.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+    cyl.userData = { largo: dir.length() - 1.9, w }; gNeu.add(cyl); cables.push(cyl);
+    // perilla: disco + aguja, sobre el cable
+    const pm = new THREE.Group();
+    pm.add(new THREE.Mesh(new THREE.CylinderGeometry(.42, .42, .16, 32), mat(gNeu, { color: '#1b2336', emissive: '#ffffff', emissiveIntensity: .02 })));
+    const aguja = new THREE.Mesh(new THREE.BoxGeometry(.07, .12, .36), mat(gNeu, { color: w > 0 ? C.pos : C.neg, emissive: w > 0 ? C.pos : C.neg, emissiveIntensity: .6 }));
+    aguja.position.set(0, .1, .16); pm.add(aguja);
+    pm.rotation.x = Math.PI / 2;
+    pm.position.copy(p).addScaledVector(dir, .42); pm.position.z += .35;
+    pm.userData = { aguja, w }; gNeu.add(pm); perillas.push(pm);
+  });
+  neurona = new THREE.Mesh(esfera, mat(gNeu, { color: '#3a3320', emissive: '#ffd166', emissiveIntensity: .1 }));
+  neurona.scale.setScalar(1.15); gNeu.add(neurona);
+  cableSalida = new THREE.Mesh(new THREE.CylinderGeometry(.09, .09, 1, 12), mat(gNeu, { color: C.gold, emissive: C.gold, emissiveIntensity: .5 }));
+  cableSalida.rotation.z = Math.PI / 2; gNeu.add(cableSalida);
+  foco = new THREE.Mesh(esfera, mat(gNeu, { color: '#fff6d8', emissive: '#ffd166', emissiveIntensity: 0 }));
+  foco.scale.setScalar(.95); foco.position.copy(FOCO); gNeu.add(foco);
+  luzFoco = new THREE.PointLight('#ffd166', 0, 14); luzFoco.position.copy(FOCO); gNeu.add(luzFoco);
+}
+function escenaNeurona(t) {
+  const a = vis(t, 'neurona', 'activacion'); fundir(gNeu, a);
+  luzFoco.visible = a > 0;
+  if (a <= 0) return 0;
+  const kN = P(t, 'neurona', .05, .3), kIn = P(t, 'neurona', .35, .7);
+  const kW = P(t, 'pesos', .05, .25), kK = P(t, 'pesos', .3, .5), kNeg = P(t, 'pesos', .75, .9);
+  const kS = [P(t, 'suma', .12, .25), P(t, 'suma', .55, .62), P(t, 'suma', .62, .7), P(t, 'suma', .72, .8), P(t, 'suma', .85, .95)];
+  const kPanelOut = P(t, 'activacion', 0, .1), kAct = P(t, 'activacion', .1, .35), kGlow = P(t, 'activacion', .3, .78);
+  const kO = P(t, 'activacion', .2, .4);
+  cables.forEach((c, i) => {
+    const r = lerp(.03, .05 + Math.abs(c.userData.w) * .16, kW) * Math.max(kIn, .001);
+    c.scale.set(r, c.userData.largo * Math.max(kIn, .001), r);
+  });
+  perillas.forEach(p => { p.visible = kK > .01; p.scale.setScalar(Math.max(kK, .001)); p.rotation.y = p.userData.w * Math.PI * .75 * kK; });
+  neurona.scale.setScalar(1.15 * Math.max(kN, .001));
+  const brillo = kGlow * N1.y;
+  neurona.material.emissiveIntensity = .1 + 1.2 * brillo;
+  cableSalida.visible = kO > .01;
+  const largo = (FOCO.x - 1.1 - 1) * kO; cableSalida.scale.set(1, Math.max(largo, .001), 1); cableSalida.position.set(1.1 + largo / 2, 0, 0);
+  foco.visible = kO > .01; foco.material.emissiveIntensity = 2.5 * brillo;
+  luzFoco.intensity = 60 * brillo * a;
+  const ang = Math.sin(t * .15) * .12;
+  return { a, cam: [Math.sin(ang) * 15 - .3, 1.2, Math.cos(ang) * 15], mira: [-.4, -.3, 0], dibujar2D: () => {
+    IN3.forEach((p, i) => etiqueta(N1.x[i].toFixed(1), p, 38, C.ink, a * kIn, 800));
+    etiqueta('entradas', new THREE.Vector3(-6, -4.1, 0), 30, C.muted, a * kIn, 500);
+    etiqueta('neurona', new THREE.Vector3(0, 1.7, 0), 30, C.muted, a * kN, 500);
+    etiqueta(kS[4] > 0 ? '0.90' : 'Σ', NEU, kS[4] > 0 ? 42 : 56, C.ink, a * kN, 800);
+    perillas.forEach((p, i) => {
+      const w = N1.w[i];
+      const s = w > 0 ? `× ${w.toFixed(1)}` : `× −${Math.abs(w).toFixed(1)}  (resta)`;
+      etiqueta(s, p.position, 30, w > 0 ? C.pos : C.neg, a * kK, 700, 0, i === 0 ? -52 : 52);
+    });
+    if (kNeg > 0) etiqueta('◯', perillas[1].position, 70, C.gold, a * kNeg * (1 - P(t, 'suma', 0, .1)), 300);
+    // panel de la suma (abajo a la derecha, en la pantalla)
+    const pa = a * kS[0] * (1 - kPanelOut);
+    panel(1280, 620, 460, 290, pa);
+    const filas = [['0.8 × 0.9', '= 0.72', C.pos], ['0.2 × (−0.6)', '= −0.12', C.neg], ['0.5 × 0.4', '= 0.20', C.pos], ['+ ajuste', '= 0.10', C.muted]];
+    filas.forEach(([x, y, col], i) => { texto2D(x, 1320, 665 + i * 50, 32, C.ink, 'left', pa * kS[i], 600); texto2D(y, 1700, 665 + i * 50, 32, col, 'right', pa * kS[i], 700); });
+    texto2D('suma', 1320, 882, 32, C.gold, 'left', pa * kS[4], 700);
+    texto2D('= 0.90', 1700, 882, 34, C.gold, 'right', pa * kS[4], 800);
+    // regulador de luz (misma zona, cuando se va la suma)
+    if (kAct > 0) {
+      const px = 1300, py = 720, pw = 420, ph = 170, al = a * kAct;
+      panel(px - 40, py - 70, pw + 80, ph + 130, al);
+      ctx.globalAlpha = al; ctx.strokeStyle = C.gold; ctx.lineWidth = 4; ctx.beginPath();
+      for (let i = 0; i <= 100; i++) { const z = lerp(-6, 6, i / 100), X = px + pw * i / 100, Y = py + ph - sig(z) * ph; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }
+      ctx.stroke(); ctx.globalAlpha = 1;
+      texto2D('regulador de luz', px + pw / 2, py - 38, 30, C.gold, 'center', al, 700);
+      texto2D('suma baja', px, py + ph + 30, 24, C.muted, 'left', al, 500);
+      texto2D('suma alta', px + pw, py + ph + 30, 24, C.muted, 'right', al, 500);
+      const z = lerp(-6, N1.z, kGlow);
+      ctx.globalAlpha = al; ctx.fillStyle = C.bad; ctx.beginPath(); ctx.arc(px + pw * (z + 6) / 12, py + ph - sig(z) * ph, 11, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+    }
+    etiqueta(`${Math.round(N1.y * kGlow * 100)}%`, FOCO, 40, '#1b1405', a * kO, 800);
+    etiqueta('cuánto se enciende', new THREE.Vector3(5.2, 1.7, 0), 28, C.muted, a * kO, 500);
+  } };
+}
+
+// ═════════════ la red en 3D (escenas 4 a 8 y 11) ═════════════
+const gRed = grupo();
+const SIZES = [64, 6, 6, 10];
+const POS = [[], [], [], []];
+// la capa de entrada ES el dibujo: una cuadrícula de 8×8 mirando a la cámara
+PIX.forEach((_, k) => { const r = Math.floor(k / 8), c = k % 8; POS[0].push(new THREE.Vector3(-7.4 + (c - 3.5) * .52, (3.5 - r) * .52, 0)); });
+for (let i = 0; i < 6; i++) { const ang = i / 6 * Math.PI * 2; POS[1].push(new THREE.Vector3(-2.2, Math.cos(ang) * 2.1, Math.sin(ang) * 2.1)); POS[2].push(new THREE.Vector3(1.6, Math.cos(ang + .5) * 2.1, Math.sin(ang + .5) * 2.1)); }
+for (let i = 0; i < 10; i++) POS[3].push(new THREE.Vector3(5.2, (4.5 - i) * .82, 0));
+const W1 = (() => { const r = rng(42); return SIZES.slice(0, -1).map((n, l) => Array.from({ length: n }, () => Array.from({ length: SIZES[l + 1] }, () => r() * 2 - 1))); })();
+const W2 = (() => { const r = rng(99); return W1.map(L => L.map(row => row.map(w => clamp(w + (r() - .5) * 1.1, -1, 1)))); })();
+const HID = (() => { const r = rng(5); return [PIX, Array.from({ length: 6 }, () => r()), Array.from({ length: 6 }, () => r())]; })();
+const OUT_ANTES = [.04, .06, .09, .41, .05, .07, .03, .18, .04, .03];
+const OUT_DESPUES = [.00, .01, .01, .02, .00, .00, .00, .93, .02, .01];
+const OBJ = 7;
+const EDGES = [];
+for (let l = 0; l < 3; l++) for (let i = 0; i < SIZES[l]; i++) for (let j = 0; j < SIZES[l + 1]; j++) EDGES.push([l, i, j]);
+const nodos = [[], [], [], []];
+let lineas, pulsos, pulsosAtras, barras = [], objetivo, zonas = [];
+{
+  SIZES.forEach((n, l) => { for (let i = 0; i < n; i++) {
+    const m = mat(gRed, { color: '#28324a', emissive: '#ffd166', emissiveIntensity: 0 });
+    const s = new THREE.Mesh(esfera, m); s.scale.setScalar(l === 0 ? .2 : .42); s.position.copy(POS[l][i]); gRed.add(s); nodos[l].push(s);
+  } });
+  const pos = new Float32Array(EDGES.length * 6), col = new Float32Array(EDGES.length * 6);
+  EDGES.forEach(([l, i, j], e) => { pos.set([...POS[l][i].toArray(), ...POS[l + 1][j].toArray()], e * 6); });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  lineas = new THREE.LineSegments(geo, lmat(gRed, { vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  gRed.add(lineas);
+  pulsos = new THREE.InstancedMesh(new THREE.SphereGeometry(.07, 8, 6), mat(gRed, { color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 1 }), EDGES.length);
+  pulsosAtras = new THREE.InstancedMesh(new THREE.SphereGeometry(.09, 8, 6), mat(gRed, { color: C.bad, emissive: C.bad, emissiveIntensity: 1.2 }), EDGES.length);
+  gRed.add(pulsos, pulsosAtras);
+  for (let i = 0; i < 10; i++) {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(1, .42, .42), mat(gRed, { color: '#5b6a86', emissive: '#000000' }));
+    b.geometry.translate(.5, 0, 0); b.position.set(5.8, POS[3][i].y, 0); gRed.add(b); barras.push(b);
+  }
+  objetivo = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(3.2, .58, .58)), lmat(gRed, { color: C.good }));
+  objetivo.position.set(5.8 + 1.6, POS[3][OBJ].y, 0); gRed.add(objetivo);
+  // recuadros de "partes"
+  [[-7.4, 0, 0, 4.6, 4.6, .8], [-.3, 0, 0, 5.6, 5.4, 5.4], [5.2, 0, 0, 1.2, 8.8, 1.2]].forEach(([x, y, z, w, h, d]) => {
+    const r = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, d)), lmat(gRed, { color: C.gold }));
+    r.position.set(x, y, z); gRed.add(r); zonas.push(r);
+  });
+}
+const tmpM = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpC = new THREE.Color();
+
+// estado: { capas, fwd, back, mix, out, zonaK:[3], objK }
+function actualizarRed(e) {
+  const { capas = 4, fwd = -1, back = -1, mix = 0, out = null, zonaK = [0, 0, 0], objK = 0 } = e;
+  const col = lineas.geometry.attributes.color;
+  EDGES.forEach(([l, i, j], k) => {
+    const ka = clamp(capas - l - 1);
+    const w = lerp(W1[l][i][j], W2[l][i][j], mix);
+    const lit = fwd >= 0 ? clamp(fwd - l) * (1 - clamp(fwd - l - 1)) : 0;
+    const bl = back >= 0 ? clamp(back - (2 - l)) * (1 - clamp(back - (2 - l) - 1)) : 0;
+    const base = (l === 0 ? .05 : .2) + Math.abs(w) * (l === 0 ? .1 : .35);
+    tmpC.copy(bl > 0 ? COL.bad : (w > 0 ? COL.pos : COL.neg)).multiplyScalar(ka * (base + .7 * lit + 1.2 * bl));
+    col.setXYZ(k * 2, tmpC.r, tmpC.g, tmpC.b); col.setXYZ(k * 2 + 1, tmpC.r, tmpC.g, tmpC.b);
+    const pocos = l > 0 || i % 3 === 0;               // en la primera capa, sólo algunos pulsos
+    const ida = lit > 0 && lit < 1 && pocos, vuelta = bl > 0 && bl < 1 && pocos;
+    tmpV.lerpVectors(POS[l][i], POS[l + 1][j], ida ? lit : 0);
+    tmpM.makeScale(+ida, +ida, +ida).setPosition(tmpV); pulsos.setMatrixAt(k, tmpM);
+    tmpV.lerpVectors(POS[l][i], POS[l + 1][j], vuelta ? 1 - bl : 0);
+    tmpM.makeScale(+vuelta, +vuelta, +vuelta).setPosition(tmpV); pulsosAtras.setMatrixAt(k, tmpM);
+  });
+  col.needsUpdate = true; pulsos.instanceMatrix.needsUpdate = true; pulsosAtras.instanceMatrix.needsUpdate = true;
+  nodos.forEach((ns, l) => ns.forEach((s, i) => {
+    const ka = clamp(capas - l);
+    s.visible = ka > .01; s.scale.setScalar((l === 0 ? .2 : .42) * Math.max(ka, .001));
+    let act = 0;
+    if (l < 3 && fwd >= 0) act = clamp(fwd - l + 1) * HID[l][i];
+    if (l === 0 && fwd < 0) act = PIX[i] * .8;       // el dibujo siempre se ve en la cuadrícula
+    if (l === 3 && out) act = out[i];
+    s.material.emissiveIntensity = act * (l === 0 ? 2.2 : 1.6);
+    s.material.color.set(l === 0 && PIX[i] ? '#f4f1ea' : '#28324a');
+  }));
+  barras.forEach((b, i) => {
+    const v = out ? out[i] : 0;
+    b.visible = !!out; b.scale.x = Math.max(v * 3, .02);
+    const best = out ? out.indexOf(Math.max(...out)) : -1;
+    b.material.color.set(i === best ? (i === OBJ ? C.good : C.bad) : '#5b6a86');
+    b.material.emissive.set(i === best ? (i === OBJ ? C.good : C.bad) : '#000000'); b.material.emissiveIntensity = .5;
+  });
+  objetivo.visible = objK > .01; objetivo.material.opacity = objK * gRed.userData.opac;
+  zonas.forEach((z, i) => { z.visible = zonaK[i] > .01; z.material.opacity = zonaK[i] * gRed.userData.opac; });
+}
+function etiquetasRed(a, out, capas = 4) {
+  etiqueta('entrada: 64 (el dibujo)', new THREE.Vector3(-7.4, 2.8, 0), 28, C.muted, a * clamp(capas), 600);
+  etiqueta('capas ocultas', new THREE.Vector3(-.3, 3.2, 0), 28, C.muted, a * clamp(capas - 1), 600);
+  etiqueta('salida: 10', new THREE.Vector3(5.2, 4.6, 0), 28, C.muted, a * clamp(capas - 3), 600);
+  POS[3].forEach((p, i) => etiqueta(String(i), p, 24, C.ink, a * clamp(capas - 3), 800));
+  if (out) {
+    const best = out.indexOf(Math.max(...out));
+    // el porcentaje va justo después de la barra (o del recuadro del objetivo, si está)
+    [best, OBJ].forEach(i => etiqueta(`${Math.round(out[i] * 100)}%`, new THREE.Vector3(5.8 + (i === OBJ && objetivo.visible ? 3.2 : out[i] * 3) + .25, POS[3][i].y, 0), 26, i === OBJ ? C.good : C.bad, a, 800, 0, 0, 'left'));
+  }
+}
+function camRed(t) { const ang = -.5 + Math.sin(t * .08) * .22; return [Math.sin(ang) * 17 - .6, 2.4, Math.cos(ang) * 17]; }
+
+function escenaRed(t) {
+  const a = vis(t, 'red', 'ajuste');
+  if (a <= 0) return 0;
+  const capas = lerp(0, 4, P(t, 'red', .1, .85));
+  const fwd = t >= F('intento', .35) ? lerp(-.2, 4.2, seg(t, F('intento', .35), F('intento', .8))) : -1;
+  const kOut = P(t, 'intento', .78, .9);
+  const back = t >= F('retro', .1) ? lerp(0, 4.2, seg(t, F('retro', .1), F('retro', .8))) : -1;
+  const mix = P(t, 'ajuste', .1, .75) * .6;
+  const zk = [[.02, .3], [.3, .55], [.55, .95]].map(([f0, f1]) => Math.min(P(t, 'partes', f0, f0 + .06), 1 - P(t, 'partes', f1 - .04, f1)));
+  const k7 = P(t, 'error', .3, .45) * (1 - P(t, 'retro', 0, .12));
+  const out = kOut > 0 ? OUT_ANTES.map(v => v * kOut) : null;
+  return { a, red: { capas, fwd, back, mix, out, zonaK: zk, objK: k7 }, cam: camRed(t), mira: [-.8, 0, 0], dibujar2D: () => {
+    etiquetasRed(a, out, capas);
+    const labs = ['recibe el dibujo', 'buscan patrones', 'una por dígito'], lp = [[-7.4, -2.8, 0], [-.3, -3.4, 0], [5.2, -4.8, 0]];
+    zk.forEach((k, i) => etiqueta(labs[i], new THREE.Vector3(...lp[i]), 28, C.gold, a * k, 700));
+    texto2D('La red dice: 3', 1640, 900, 38, C.bad, 'center', a * P(t, 'intento', .88, .96) * (1 - P(t, 'retro', 0, .1)), 800);
+    const kE = P(t, 'error', .05, .2);
+    texto2D('Era un 7', 260, 868, 42, C.good, 'center', a * kE, 800);
+    etiqueta('debía: 100%', new THREE.Vector3(7.4, POS[3][OBJ].y - .72, 0), 24, C.good, a * k7, 700);
+    etiqueta('debía: 0%', new THREE.Vector3(7.4, POS[3][3].y + .6, 0), 24, C.bad, a * P(t, 'error', .68, .8) * (1 - P(t, 'retro', 0, .12)), 700);
+    const err = OUT_ANTES.reduce((s, v, i) => s + (v - (i === OBJ ? 1 : 0)) ** 2, 0);
+    texto2D(`error = ${err.toFixed(2)}`, 260, 922, 34, C.gold, 'center', a * P(t, 'error', .85, .95) * (1 - P(t, 'ajuste', .8, 1)), 700);
+    const kR = Math.min(P(t, 'retro', .05, .15), 1 - P(t, 'ajuste', 0, .1));
+    texto2D('← el error viaja hacia atrás', W / 2, 900, 34, C.bad, 'center', a * kR, 700);
+    const kM = P(t, 'ajuste', .2, .4) * (1 - P(t, 'montana', 0, .1));
+    [[1, 0, 1], [1, 3, 4], [2, 1, 7], [2, 4, 2]].forEach(([l, i, j]) => {
+      const d = W2[l][i][j] - W1[l][i][j];
+      etiqueta(d > 0 ? '+' : '−', new THREE.Vector3().lerpVectors(POS[l][i], POS[l + 1][j], .5), 40, d > 0 ? C.pos : C.neg, a * kM, 900);
+    });
+    texto2D('pesos ajustados ✓', W / 2, 900, 34, C.good, 'center', a * P(t, 'ajuste', .8, .92), 700);
+  } };
+}
+function escenaResultado(t) {
+  const a = vis(t, 'resultado', 'resultado');
+  if (a <= 0) return 0;
+  const fwd = lerp(-.2, 4.2, seg(t, F('resultado', .35), F('resultado', .7)));
+  const kOut = P(t, 'resultado', .68, .8);
+  const out = kOut > 0 ? OUT_DESPUES.map(v => v * kOut) : null;
+  return { a, red: { capas: 4, fwd, mix: 1, out }, cam: camRed(t), mira: [-.8, 0, 0], dibujar2D: () => {
+    etiquetasRed(a, out);
+    texto2D('mismo dibujo, pesos ya entrenados', 300, 820, 30, C.muted, 'center', a * P(t, 'resultado', .1, .25), 600);
+    texto2D('Ahora dice: 7 ✓', 1640, 900, 40, C.good, 'center', a * P(t, 'resultado', .8, .9), 800);
+  } };
+}
+
+// ═════════════ escena 9: la montaña del error, con dos pesos ═════════════
+const gMon = grupo();
+// error según dos pesos (x, z). HM es la escala de altura para que la montaña quepa en cámara.
+const HM = .38;
+const L0 = (x, z) => .22 * ((x - 1.2) ** 2 + .7 * (z + .8) ** 2) + .35 * Math.sin(1.3 * x) * Math.cos(1.1 * z) + .6;
+const Lf = (x, z) => HM * L0(x, z);
+const dLf = (x, z) => [.44 * (x - 1.2) + .455 * Math.cos(1.3 * x) * Math.cos(1.1 * z), .308 * (z + .8) - .385 * Math.sin(1.3 * x) * Math.sin(1.1 * z)];
+const PASOS3 = (() => { const s = [[-4.2, 3.6]]; for (let i = 0; i < 14; i++) { const [x, z] = s[i], [gx, gz] = dLf(x, z); s.push([x - .9 * gx, z - .9 * gz]); } return s; })();
+let bola, estela;
+{
+  const geo = new THREE.PlaneGeometry(12, 12, 120, 120); geo.rotateX(-Math.PI / 2);
+  const p = geo.attributes.position, colores = new Float32Array(p.count * 3);
+  let hmax = 0; for (let i = 0; i < p.count; i++) hmax = Math.max(hmax, Lf(p.getX(i), p.getZ(i)));
+  for (let i = 0; i < p.count; i++) {
+    const h = Lf(p.getX(i), p.getZ(i)); p.setY(i, h);
+    tmpC.copy(COL.good).lerp(COL.bad, clamp(h / hmax * 1.3 - .15)); colores.set([tmpC.r, tmpC.g, tmpC.b], i * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colores, 3)); geo.computeVertexNormals();
+  gMon.add(new THREE.Mesh(geo, mat(gMon, { vertexColors: true, roughness: .8, side: THREE.DoubleSide })));
+  gMon.add(new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.PlaneGeometry(12, 12, 24, 24).rotateX(-Math.PI / 2).translate(0, 0, 0)), lmat(gMon, { color: '#ffffff', opacity: 0 })));
+  bola = new THREE.Mesh(esfera, mat(gMon, { color: C.gold, emissive: C.gold, emissiveIntensity: .5 })); bola.scale.setScalar(.32); gMon.add(bola);
+  const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PASOS3.length * 3), 3));
+  estela = new THREE.Line(eg, lmat(gMon, { color: C.gold })); gMon.add(estela);
+}
+function escenaMontana(t) {
+  const a = vis(t, 'montana', 'montana'); fundir(gMon, a);
+  if (a <= 0) return 0;
+  const pp = seg(t, F('montana', .3), F('montana', .82)) * (PASOS3.length - 1);
+  const i = Math.min(Math.floor(pp), PASOS3.length - 2), f = ease(pp - i);
+  const x = lerp(PASOS3[i][0], PASOS3[i + 1][0], f), z = lerp(PASOS3[i][1], PASOS3[i + 1][1], f);
+  // la bola se apoya sobre la superficie según la normal
+  const [gx, gz] = dLf(x, z), n = new THREE.Vector3(-gx * HM, 1, -gz * HM).normalize();
+  bola.position.set(x, Lf(x, z), z).addScaledVector(n, .32);
+  const ep = estela.geometry.attributes.position;
+  for (let k = 0; k < PASOS3.length; k++) { const q = PASOS3[Math.min(k, i)]; ep.setXYZ(k, q[0], Lf(q[0], q[1]) + .05, q[1]); }
+  ep.setXYZ(i + 1, x, Lf(x, z) + .05, z); for (let k = i + 2; k < PASOS3.length; k++) ep.setXYZ(k, x, Lf(x, z) + .05, z);
+  ep.needsUpdate = true;
+  const ang = .7 + (t - A('montana')) * .03;
+  const fin = PASOS3[PASOS3.length - 1];
+  return { a, cam: [Math.sin(ang) * 19, 12.5, Math.cos(ang) * 19], mira: [0, 2.4, 0], dibujar2D: () => {
+    panel(W / 2 - 560, 100, 1120, 110, a * P(t, 'montana', .05, .15));
+    texto2D('tantear y dar un paso hacia donde baja', W / 2, 130, 34, C.ink, 'center', a * P(t, 'montana', .15, .25), 600);
+    etiqueta('error alto', new THREE.Vector3(-5.5, Lf(-5.5, 5.5) + .5, 5.5), 30, C.bad, a, 700);
+    etiqueta(`paso ${i + 1}`, bola.position, 28, C.gold, a * P(t, 'montana', .3, .35), 700, 0, -44);
+    etiqueta('valle = error mínimo', new THREE.Vector3(fin[0], Lf(fin[0], fin[1]) - .2, fin[1]), 30, C.good, a * P(t, 'montana', .72, .82), 700, 0, 46);
+    texto2D('la superficie es el error según dos pesos: bajar = equivocarse menos', W / 2, 180, 28, C.ink, 'center', a * P(t, 'montana', .05, .15), 500);
+  } };
+}
+
+// ═════════════ escena 10: repetir ═════════════
+const gRep = grupo();
+const columnas = [];
+{
+  for (let i = 0; i < 14; i++) {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(.6, 1, .6), mat(gRep, { color: C.good, emissive: C.good, emissiveIntensity: .25 }));
+    b.geometry.translate(0, .5, 0); b.position.set(-5.2 + i * .8, -2.5, 0); gRep.add(b); columnas.push(b);
+  }
+  const piso = new THREE.Mesh(new THREE.BoxGeometry(12, .06, 2), mat(gRep, { color: '#27324d' })); piso.position.set(0, -2.53, 0); gRep.add(piso);
+}
+const acc = x => .1 + .86 * (1 - Math.exp(-5 * x));
+function escenaRepetir(t) {
+  const a = vis(t, 'repetir', 'repetir'); fundir(gRep, a);
+  if (a <= 0) return 0;
+  const k = seg(t, F('repetir', .1), F('repetir', .95));
+  // cada columna aparece rápido, para que la que está creciendo no parezca una caída
+  columnas.forEach((b, i) => { const x = (i + 1) / columnas.length, v = clamp((ease(k) - x + .02) / .02); b.scale.y = Math.max(acc(x) * 5.5 * v, .001); b.visible = v > 0; });
+  const ang = Math.sin(t * .2) * .25;
+  return { a, cam: [Math.sin(ang) * 13, 1.5, Math.cos(ang) * 13], mira: [0, 0, 0], dibujar2D: () => {
+    texto2D(`dibujos vistos: ${Math.round(ease(k) * 60000).toLocaleString('es')}`, W / 2, 170, 46, C.ink, 'center', a, 700);
+    texto2D(`aciertos: ${Math.round(acc(ease(k)) * 100)}%`, W / 2, 235, 38, C.good, 'center', a, 700);
+    etiqueta('cada columna: aciertos después de más ejemplos →', new THREE.Vector3(0, -3.3, 0), 26, C.muted, a, 500);
+  } };
+}
+
+// ═════════════ cierre: carrusel del ciclo ═════════════
+const gCie = grupo();
+const PASOS_C = ['adivinar', 'medir el error', 'repartir la culpa', 'ajustar un poquito', 'repetir'];
+const cartas = PASOS_C.map((s, i) => {
+  const c = document.createElement('canvas'); c.width = 640; c.height = 200;
+  const x = c.getContext('2d'); x.fillStyle = '#141c30'; x.fillRect(0, 0, 640, 200);
+  x.strokeStyle = C.gold; x.lineWidth = 10; x.strokeRect(5, 5, 630, 190);
+  x.fillStyle = C.ink; x.font = '700 64px system-ui, "Segoe UI", sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(s, 320, 104);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide }); m.userData.base = 1; gCie.userData.mats.push(m);
+  const p = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.12), m); gCie.add(p); return p;
+});
+const anillo = new THREE.Mesh(new THREE.TorusGeometry(5, .03, 8, 120), mat(gCie, { color: '#8a94a8', emissive: '#8a94a8', emissiveIntensity: .3 }));
+anillo.rotation.x = Math.PI / 2; anillo.position.y = -1; gCie.add(anillo);
+function escenaCierre(t) {
+  const a = vis(t, 'cierre', 'cierre'); fundir(gCie, a);
+  if (a <= 0) return 0;
+  const fr = [.08, .2, .36, .52, .64];
+  let cur = 0; fr.forEach((f, i) => { if (t >= F('cierre', f)) cur = i; });
+  const giro = -lerp(0, 4, seg(t, F('cierre', .08), F('cierre', .72))) / 5 * Math.PI * 2;
+  cartas.forEach((p, i) => {
+    const ang = i / 5 * Math.PI * 2 + giro;
+    p.position.set(Math.sin(ang) * 5, 0, Math.cos(ang) * 5);
+    p.lookAt(0, 0, 12);
+    const k = P(t, 'cierre', fr[i], fr[i] + .08);
+    p.material.opacity = a * (.25 + .75 * k) * (i === cur ? 1 : .8);
+    p.scale.setScalar(i === cur ? 1.12 : .9);
+  });
+  return { a, cam: [0, 3.2, 13], mira: [0, -.3, 0], dibujar2D: () => {
+    texto2D('Eso es aprender', W / 2, 190, 64, C.gold, 'center', a * P(t, 'cierre', .8, .92), 800);
+    texto2D('para una red neuronal', W / 2, 258, 34, C.muted, 'center', a * P(t, 'cierre', .84, .95), 500);
+  } };
+}
+
+// ───────────── títulos de sección ─────────────
+const TITULOS = {
+  idea: '1 · Aprender con ejemplos', numeros: '2 · La computadora ve números', neurona: '3 · Una neurona',
+  pesos: '3 · Una neurona: los pesos', suma: '3 · Una neurona: la suma', activacion: '3 · Una neurona: encenderse',
+  red: '4 · Una red de neuronas', partes: '4 · Una red de neuronas', intento: '5 · El primer intento',
+  error: '6 · Medir el error', retro: '7 · Retropropagación', ajuste: '8 · Ajustar los pesos',
+  montana: '9 · Descenso de gradiente', repetir: '10 · Repetir', resultado: '11 · El resultado'
+};
+function titulo(t) {
+  for (const id in TITULOS) {
+    const al = Math.min(seg(t, A(id) - .3, A(id) + .2), 1 - seg(t, SIG(id) - .3, SIG(id) + .2));
+    texto2D(TITULOS[id], 80, 70, 42, C.gold, 'left', al, 700);
+  }
+}
+
+// ───────────── cuadro ─────────────
+const ESCENAS = [escenaTitulo, escenaIdea, escenaNumeros, escenaNeurona, escenaRed, escenaMontana, escenaRepetir, escenaResultado, escenaCierre];
+function render(t) {
+  const activas = ESCENAS.map(f => f(t)).filter(Boolean);
+  // la red la comparten dos escenas: se actualiza con la más visible
+  const conRed = activas.filter(e => e.red).sort((x, y) => y.a - x.a)[0];
+  gRed.userData.opac = conRed ? conRed.a : 0;
+  fundir(gRed, gRed.userData.opac);
+  if (conRed) actualizarRed(conRed.red);
+  // la cámara sigue a la escena más visible
+  const principal = activas.sort((x, y) => y.a - x.a)[0];
+  if (principal) { cam.position.set(...principal.cam); cam.lookAt(...principal.mira); }
+  cam.updateMatrixWorld();
+  gl.render(scene, cam);
+  ctx.drawImage(gl.domElement, 0, 0);
+  // fundido a oscuro entre escenas
+  const maxA = principal ? principal.a : 0;
+  if (maxA < 1) { ctx.globalAlpha = 1 - maxA; ctx.fillStyle = '#070a12'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+  for (const e of activas) e.dibujar2D();
+  dibujarEtiquetas();
+  titulo(t);
+  Reproductor.subtitulos(ctx, t, TI);
+  const fin = seg(t, DUR - .8, DUR);
+  if (fin > 0) { ctx.globalAlpha = fin; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+
+Reproductor.iniciar({ canvas: out, render, duracion: DUR, audio: 'narracion.wav' });
+</script>
+</body>
+</html>

@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>¿Cómo aprende una red neuronal? (red real)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0f18; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="tiempos.js"></script>
+<script src="datos.js"></script>
+<script src="../../herramientas/reproductor.js"></script>
+<script>
+// Técnica 3: nada es de ejemplo. datos.js trae los pesos de una red real entrenada con dígitos
+// escritos a mano (entrenar.py); aquí se hacen de verdad las cuentas que se muestran.
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const W = 1920, H = 1080;
+const TI = window.TIEMPOS, DUR = TI.total, DA = window.DATOS;
+const { clamp, lerp, seg, ease, A, D, F, P, SIG, vis } = Reproductor.ayudantes(TI);
+const C = { bg: '#0f1420', ink: '#e8ecf4', muted: '#8a94a8', pos: '#4ea1ff', neg: '#ff8a3d', good: '#3ddc97', bad: '#ff5470', gold: '#ffd166', cell: '#1b2334', panel: '#151c2c' };
+const sig = z => 1 / (1 + Math.exp(-z));
+
+// ───────────── la red real: cuentas de verdad ─────────────
+function adelante(red, x) {
+  const acts = [x];
+  red.forEach((capa, i) => {
+    const prev = acts[acts.length - 1], n = capa.b.length;
+    const z = Array.from({ length: n }, (_, j) => prev.reduce((s, a, k) => s + a * capa.W[k][j], capa.b[j]));
+    if (i < red.length - 1) acts.push(z.map(sig));
+    else { const m = Math.max(...z), e = z.map(v => Math.exp(v - m)), s = e.reduce((a, b) => a + b, 0); acts.push(e.map(v => v / s)); }
+  });
+  return acts;
+}
+const X7 = DA.x7, SIZES = DA.sizes, OBJ = 7;
+const ACT0 = adelante(DA.red0, X7), ACT1 = adelante(DA.red1, X7), ACTF = adelante(DA.redF, X7);
+const OUT0 = ACT0[3], OUT1 = ACT1[3], OUTF = ACTF[3];
+const argmax = v => v.indexOf(Math.max(...v));
+const D0 = argmax(OUT0);
+const ERR0 = -Math.log(OUT0[OBJ]), ERR1 = -Math.log(OUT1[OBJ]), ERRF = -Math.log(OUTF[OBJ]);
+// culpa (|gradiente|) normalizada por capa
+const CULPA = DA.grad0.map(G => { const m = Math.max(...G.flat().map(Math.abs)); return G.map(r => r.map(g => Math.abs(g) / m)); });
+const pct = v => `${Math.round(v * 100)}%`;
+
+// ───────────── dibujo ─────────────
+function text(s, x, y, size, color = C.ink, align = 'center', alpha = 1, weight = 600) {
+  if (alpha <= .01) return;
+  ctx.globalAlpha = alpha; ctx.fillStyle = color;
+  ctx.font = `${weight} ${size}px system-ui, "Segoe UI", sans-serif`;
+  ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y); ctx.globalAlpha = 1;
+}
+function circle(x, y, r, fill, stroke, lw = 3, alpha = 1) {
+  if (alpha <= .01) return;
+  ctx.globalAlpha = alpha; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
+  ctx.globalAlpha = 1;
+}
+function line(x1, y1, x2, y2, color, lw, alpha = 1, dash = null) {
+  if (alpha <= .005) return;
+  ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = lw;
+  if (dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+}
+function arrow(x1, y1, x2, y2, color, lw, alpha = 1) {
+  line(x1, y1, x2, y2, color, lw, alpha);
+  const a = Math.atan2(y2 - y1, x2 - x1), s = 8 + lw * 2;
+  ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.beginPath();
+  ctx.moveTo(x2, y2); ctx.lineTo(x2 - s * Math.cos(a - .45), y2 - s * Math.sin(a - .45));
+  ctx.lineTo(x2 - s * Math.cos(a + .45), y2 - s * Math.sin(a + .45)); ctx.fill(); ctx.globalAlpha = 1;
+}
+function rect(x, y, w, h, r, fill, stroke, lw = 2, alpha = 1, dash = null) {
+  if (alpha <= .01) return;
+  ctx.globalAlpha = alpha; ctx.beginPath(); ctx.roundRect(x, y, w, h, r);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; if (dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+  ctx.globalAlpha = 1;
+}
+// Un dígito real de 8×8 (valores 0..1) como cuadritos grises.
+function digito(x8, x, y, cs, alpha, borde = null) {
+  for (let k = 0; k < 64; k++) {
+    const v = x8[k], g = Math.round(lerp(27, 240, v));
+    rect(x + (k % 8) * cs, y + Math.floor(k / 8) * cs, cs - 1.5, cs - 1.5, Math.min(4, cs / 6), `rgb(${g},${g},${Math.round(lerp(52, 236, v))})`, null, 0, alpha);
+  }
+  if (borde) rect(x - 4, y - 4, cs * 8 + 6, cs * 8 + 6, 6, null, borde, 3, alpha);
+}
+
+const TITULOS = {
+  real: '0 · Todo esto es de verdad', idea: '1 · Aprender con ejemplos', numeros: '2 · La computadora ve números', neurona: '3 · Una neurona',
+  pesos: '3 · Una neurona: los pesos', suma: '3 · Una neurona: la suma', activacion: '3 · Una neurona: encenderse',
+  red: '4 · Nuestra red real', intento: '5 · El primer intento (pesos al azar)', error: '6 · Medir el error',
+  retro: '7 · Retropropagación: la culpa real', ajuste: '8 · Ajustar los pesos', montana: '9 · Descenso de gradiente, con un peso real',
+  repetir: '10 · Repetir: el entrenamiento real', resultado: '11 · El resultado', muestra: '12 · Dibujos que nunca vio'
+};
+function titulo(t) {
+  for (const id in TITULOS) {
+    const al = Math.min(seg(t, A(id) - .3, A(id) + .2), 1 - seg(t, SIG(id) - .3, SIG(id) + .2));
+    text(TITULOS[id], 80, 70, 42, C.gold, 'left', al, 700);
+  }
+}
+const STARS = (() => { let s = 7; const r = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; return Array.from({ length: 110 }, () => [r() * W, r() * H, r() * 1.6 + .4, r() * 6]); })();
+function fondo(t) {
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  for (const [x, y, s, ph] of STARS) circle(x, y, s, '#6b7a99', null, 0, .2 + .15 * Math.sin(t * .7 + ph));
+}
+
+// ───────────── título y "es de verdad" ─────────────
+function escenaTitulo(t) {
+  const al = vis(t, 'titulo', 'titulo');
+  if (al <= 0) return;
+  // mosaico de dígitos reales de fondo
+  DA.muestra.forEach((m, i) => digito(m.x, 120 + (i % 12) * 145, 180 + Math.floor(i / 12) * 560 + Math.sin(t * .5 + i) * 8, 14, al * .18));
+  const k = P(t, 'titulo', 0, .25);
+  text('¿Cómo aprende', W / 2, H / 2 - 70, 100, C.ink, 'center', al * k, 800);
+  text('una red neuronal?', W / 2, H / 2 + 45, 100, C.gold, 'center', al * k, 800);
+  text('una red real, con datos reales', W / 2, H / 2 + 150, 38, C.muted, 'center', al * P(t, 'titulo', .5, .8), 500);
+}
+function escenaReal(t) {
+  const al = vis(t, 'real', 'real');
+  if (al <= 0) return;
+  DA.muestra.slice(0, 16).forEach((m, i) => {
+    const k = P(t, 'real', .05 + i * .02, .15 + i * .02);
+    digito(m.x, 250 + (i % 8) * 180, 250 + Math.floor(i / 8) * 190, 18, al * k);
+  });
+  const k2 = P(t, 'real', .45, .6);
+  text(`${DA.cifras.n_train.toLocaleString('es')} dibujos para aprender  ·  ${DA.cifras.n_test.toLocaleString('es')} para probar`, W / 2, 700, 40, C.ink, 'center', al * k2, 700);
+  text('dígitos escritos a mano por personas reales (UCI optdigits, 8×8 píxeles)', W / 2, 760, 30, C.muted, 'center', al * k2, 500);
+  text('cada número que vas a ver lo calculó esta red', W / 2, 840, 34, C.gold, 'center', al * P(t, 'real', .7, .85), 700);
+}
+
+// ───────────── 1: aprender con ejemplos (tarjetas con dígitos reales) ─────────────
+function escenaIdea(t) {
+  const al = vis(t, 'idea', 'idea');
+  if (al <= 0) return;
+  const bx = 1180, by = 330, bw = 460, bh = 300, t0 = A('idea'), v = 260, cs = 10, cw = cs * 8;
+  let vistos = 0;
+  for (let i = 0; i < 40; i++) {
+    const x = 120 + (t - t0) * v - i * 95;
+    if (x > bx - cw) { vistos++; continue; }
+    if (x < -cw) continue;
+    const y = 420 + Math.sin(i * 2.3) * 70;
+    const a = al * clamp((x + cw) / 200) * clamp((bx - cw - x) / 120) * P(t, 'idea', 0, .1);
+    rect(x - 6, y - 6, cw + 10, cw + 10, 8, '#f4f1ea', null, 0, a);
+    const m = DA.muestra[i % DA.muestra.length];
+    for (let k = 0; k < 64; k++) { const g = Math.round(lerp(244, 25, m.x[k])); rect(x + (k % 8) * cs, y + Math.floor(k / 8) * cs, cs - .5, cs - .5, 1, `rgb(${g},${g},${g})`, null, 0, a); }
+  }
+  rect(bx, by, bw, bh, 26, C.panel, C.gold, 4, al);
+  const cols = [3, 4, 4, 2];
+  for (let l = 0; l < 3; l++) for (let i = 0; i < cols[l]; i++) for (let j = 0; j < cols[l + 1]; j++)
+    line(bx + 80 + l * 100, by + bh / 2 + (i - (cols[l] - 1) / 2) * 55, bx + 180 + l * 100, by + bh / 2 + (j - (cols[l + 1] - 1) / 2) * 55, C.pos, 1.5, al * .4);
+  for (let l = 0; l < 4; l++) for (let i = 0; i < cols[l]; i++) circle(bx + 80 + l * 100, by + bh / 2 + (i - (cols[l] - 1) / 2) * 55, 13, '#243049', C.ink, 2, al);
+  text('red neuronal', bx + bw / 2, by + bh + 45, 36, C.gold, 'center', al, 700);
+  text(`dibujos vistos: ${vistos}`, bx + bw / 2, by - 40, 32, C.ink, 'center', al * P(t, 'idea', .3, .45), 600);
+  text('aprende mirando muchos ejemplos,', 120, 780, 40, C.ink, 'left', al * P(t, 'idea', .25, .4), 600);
+  text('como un niño que aprende los números', 120, 835, 40, C.muted, 'left', al * P(t, 'idea', .35, .5), 500);
+}
+
+// ───────────── 2: el siete real son 64 números del 0 al 16 ─────────────
+function escenaNumeros(t) {
+  const al = vis(t, 'numeros', 'numeros');
+  if (al <= 0) return;
+  const gx = 260, gy = 230, cs = 64;
+  const kDraw = P(t, 'numeros', .1, .3), kNum = P(t, 'numeros', .45, .7);
+  for (let k = 0; k < 64; k++) {
+    const r = Math.floor(k / 8), c = k % 8, v = X7[k] * clamp(kDraw * 64 - k);
+    const g = Math.round(lerp(27, 240, v));
+    rect(gx + c * cs, gy + r * cs, cs - 4, cs - 4, 6, `rgb(${g},${g},${Math.round(lerp(52, 236, v))})`, null, 0, al);
+    const n = Math.round(X7[k] * 16);
+    text(String(n), gx + c * cs + cs / 2 - 2, gy + r * cs + cs / 2, 26, X7[k] > .5 ? '#0f1420' : C.muted, 'center', al * clamp(kNum * 64 - k), 700);
+  }
+  text('0 = vacío   ·   16 = bien oscuro', gx + 4 * cs, gy + 8 * cs + 45, 32, C.ink, 'center', al * kNum, 600);
+  text('lo escribió una persona:', 1150, 380, 36, C.muted, 'left', al * P(t, 'numeros', .2, .35), 500);
+  text('un 7 real del conjunto de prueba', 1150, 430, 36, C.ink, 'left', al * P(t, 'numeros', .2, .35), 700);
+  text('= 64 números', 1150, 560, 56, C.gold, 'left', al * P(t, 'numeros', .85, .95), 800);
+}
+
+// ───────────── 3: una neurona (ejemplo chico, con cuentas exactas) ─────────────
+const N1 = { x: [0.8, 0.2, 0.5], w: [0.9, -0.6, 0.4], b: 0.1 };
+N1.z = N1.x.reduce((s, x, i) => s + x * N1.w[i], N1.b); N1.y = sig(N1.z);
+const IN_Y = [300, 470, 640], IN_X = 430, NX = 960, NY = 470, OX = 1470;
+function perilla(x, y, w, al, resalta) {
+  circle(x, y, 30, '#1b2336', resalta ? C.gold : '#5e6b85', resalta ? 4 : 2.5, al);
+  const a = -Math.PI / 2 + w * Math.PI * .75;
+  line(x, y, x + Math.cos(a) * 22, y + Math.sin(a) * 22, w > 0 ? C.pos : C.neg, 5, al);
+  circle(x, y, 5, C.ink, null, 0, al);
+}
+function escenaNeurona(t) {
+  const al = vis(t, 'neurona', 'activacion');
+  if (al <= 0) return;
+  const kN = P(t, 'neurona', .05, .3), kIn = P(t, 'neurona', .35, .7);
+  const kW = P(t, 'pesos', .05, .25), kK = P(t, 'pesos', .3, .5), kNeg = P(t, 'pesos', .75, .9);
+  const kS = [P(t, 'suma', .12, .25), P(t, 'suma', .55, .62), P(t, 'suma', .62, .7), P(t, 'suma', .72, .8), P(t, 'suma', .85, .95)];
+  const kPanelOut = P(t, 'activacion', 0, .1), kAct = P(t, 'activacion', .1, .35), kGlow = P(t, 'activacion', .3, .78);
+  IN_Y.forEach((y, i) => {
+    const w = N1.w[i], x1 = IN_X + 55, x2 = NX - 82, y2 = NY + (i - 1) * 40;
+    line(x1, y, x2, y2, w > 0 ? C.pos : C.neg, lerp(2, 2 + Math.abs(w) * 10, kW), al * lerp(.25 * kIn, .85, kW));
+    if (kW > 0) { const p = (t * .6 + i * .33) % 1; circle(lerp(x1, x2, p), lerp(y, y2, p), 7, C.ink, null, 0, al * kW * .9); }
+    const mx = lerp(x1, x2, .4), my = lerp(y, y2, .4);
+    perilla(mx, my, w, al * kK, i === 1 && kNeg > 0);
+    const et = w > 0 ? `× ${w.toFixed(1)}` : `× −${Math.abs(w).toFixed(1)}  (resta)`;
+    text(et, mx - (i === 1 ? 120 : 30), my + (i === 0 ? -50 : 52), 30, w > 0 ? C.pos : C.neg, 'left', al * kK, 700);
+    circle(IN_X, y, 55, '#18223a', C.ink, 3, al * kIn);
+    text(N1.x[i].toFixed(1), IN_X, y, 40, C.ink, 'center', al * kIn, 700);
+  });
+  text('entradas', IN_X, 760, 30, C.muted, 'center', al * kIn, 500);
+  const brillo = kGlow * N1.y;
+  circle(NX, NY, 82, `rgba(255,209,102,${.1 + .55 * brillo})`, C.gold, 4, al * kN);
+  text('neurona', NX, NY - 120, 30, C.muted, 'center', al * kN, 500);
+  text(kS[4] > 0 ? N1.z.toFixed(2) : 'Σ', NX, NY, kS[4] > 0 ? 44 : 60, C.ink, 'center', al * kN, 800);
+  const pa = al * kS[0] * (1 - kPanelOut);
+  if (pa > 0) {
+    const px = 740, py = 620;
+    rect(px, py, 460, 290, 16, C.panel, '#2c3854', 2, pa);
+    const filas = N1.x.map((x, i) => [`${x} × ${N1.w[i] < 0 ? '(−' + Math.abs(N1.w[i]) + ')' : N1.w[i]}`, `= ${(x * N1.w[i]).toFixed(2).replace('-', '−')}`, N1.w[i] > 0 ? C.pos : C.neg]).concat([['+ ajuste', `= ${N1.b.toFixed(2)}`, C.muted]]);
+    filas.forEach(([a, b, col], i) => { text(a, px + 40, py + 45 + i * 50, 32, C.ink, 'left', pa * kS[i], 600); text(b, px + 420, py + 45 + i * 50, 32, col, 'right', pa * kS[i], 700); });
+    line(px + 30, py + 235, px + 430, py + 235, C.muted, 2, pa * kS[4]);
+    text('suma', px + 40, py + 262, 32, C.gold, 'left', pa * kS[4], 700);
+    text(`= ${N1.z.toFixed(2)}`, px + 420, py + 262, 34, C.gold, 'right', pa * kS[4], 800);
+  }
+  if (kAct > 0) {
+    const px = 760, py = 650, pw = 400, ph = 200;
+    ctx.globalAlpha = al * kAct; ctx.strokeStyle = C.muted; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(px, py + ph); ctx.lineTo(px + pw, py + ph); ctx.stroke();
+    ctx.strokeStyle = C.gold; ctx.lineWidth = 4; ctx.beginPath();
+    for (let i = 0; i <= 100; i++) { const z = lerp(-6, 6, i / 100), X = px + pw * i / 100, Y = py + ph - sig(z) * ph; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }
+    ctx.stroke(); ctx.globalAlpha = 1;
+    line(px, py, px + pw, py, C.muted, 1, al * kAct * .6, [6, 6]);
+    text('100%', px - 12, py, 24, C.muted, 'right', al * kAct, 500);
+    text('0%', px - 12, py + ph, 24, C.muted, 'right', al * kAct, 500);
+    text('suma baja', px, py + ph + 30, 24, C.muted, 'left', al * kAct, 500);
+    text('suma alta', px + pw, py + ph + 30, 24, C.muted, 'right', al * kAct, 500);
+    text('regulador de luz', px + pw / 2, py - 32, 30, C.gold, 'center', al * kAct, 700);
+    const z = lerp(-6, N1.z, kGlow);
+    circle(px + pw * (z + 6) / 12, py + ph - sig(z) * ph, 11, C.bad, '#fff', 2, al * kAct);
+  }
+  const kO = P(t, 'activacion', .2, .4);
+  if (kO > 0) {
+    line(NX + 82, NY, OX - 70, NY, C.gold, 5, al * kO);
+    const g = ctx.createRadialGradient(OX, NY, 10, OX, NY, 170);
+    g.addColorStop(0, `rgba(255,209,102,${.55 * brillo})`); g.addColorStop(1, 'rgba(255,209,102,0)');
+    ctx.globalAlpha = al * kO; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(OX, NY, 170, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+    circle(OX, NY, 70, `rgba(255,209,102,${.15 + .7 * brillo})`, C.gold, 3, al * kO);
+    text(pct(N1.y * kGlow), OX, NY, 42, C.ink, 'center', al * kO, 800);
+    text('cuánto se enciende', OX, NY + 110, 30, C.muted, 'center', al * kO, 500);
+  }
+}
+
+// ───────────── la red real (escenas 4 a 8 y 11) ─────────────
+const LX = [640, 980, 1260, 1540];
+const nodeY = (l, i) => l === 0 ? 170 + i * 11.4 : 520 + (i - (SIZES[l] - 1) / 2) * (l === 3 ? 68 : 58);
+const GX = 110, GY = 380, CS = 40;
+function cuadricula(al) {
+  for (let k = 0; k < 64; k++) { const v = X7[k], g = Math.round(lerp(27, 240, v)); rect(GX + (k % 8) * CS, GY + Math.floor(k / 8) * CS, CS - 3, CS - 3, 4, `rgb(${g},${g},${Math.round(lerp(52, 236, v))})`, null, 0, al); }
+}
+function pesosMezcla(ra, rb, k) { return ra.map((c, l) => c.W.map((row, i) => row.map((w, j) => lerp(w, rb[l].W[i][j], k)))); }
+
+// o: { redW (pesos a dibujar), acts, fwd, back, culpa (0..1), out, capas }
+function red(t, al, o) {
+  const { redW, acts, fwd = -1, back = -1, culpa = 0, out = null, capas = 4, marcas = 0 } = o;
+  for (let k = 0; k < 64; k++) line(GX + (k % 8) * CS + CS / 2, GY + Math.floor(k / 8) * CS + CS / 2, LX[0] - 8, nodeY(0, k), C.ink, 1, al * (.04 + .3 * X7[k]));
+  for (let l = 0; l < 3; l++) {
+    const ka = clamp(capas - l - 1);
+    if (ka <= 0) continue;
+    const maxW = Math.max(...redW[l].flat().map(Math.abs));
+    for (let i = 0; i < SIZES[l]; i++) for (let j = 0; j < SIZES[l + 1]; j++) {
+      const w = redW[l][i][j], m = Math.abs(w) / maxW;
+      const x1 = LX[l] + (l ? 20 : 6), y1 = nodeY(l, i), x2 = LX[l + 1] - (l === 2 ? 24 : 20), y2 = nodeY(l + 1, j);
+      const lit = fwd >= 0 ? clamp(fwd - l) * (1 - clamp(fwd - l - 1)) : 0;
+      const bl = back >= 0 ? clamp(back - (2 - l)) * (1 - clamp(back - (2 - l) - 1)) : 0;
+      const pasado = back >= 0 ? clamp(back - (2 - l)) : 0;          // la culpa queda marcada tras el pulso
+      const cu = CULPA[l][i][j] * Math.max(pasado * culpa, bl);
+      const base = (l === 0 ? .03 : .12) + m * (l === 0 ? .12 : .4);
+      // la culpa se dibuja con curva cuadrática: sólo brillan de verdad las conexiones con más culpa
+      if (cu > .05) line(x1, y1, x2, y2, C.bad, .5 + cu * 3.5, al * ka * (.05 + .9 * cu * cu));
+      else line(x1, y1, x2, y2, w > 0 ? C.pos : C.neg, .5 + m * (l === 0 ? 1.2 : 3), al * ka * (base + .45 * lit));
+      if (lit > 0 && lit < 1 && (l > 0 || i % 5 === 0)) circle(lerp(x1, x2, lit), lerp(y1, y2, lit), 3.5, C.ink, null, 0, al * .9);
+      if (bl > 0 && bl < 1 && (l > 0 || i % 5 === 0)) circle(lerp(x2, x1, bl), lerp(y2, y1, bl), 4.5, C.bad, null, 0, al);
+    }
+  }
+  for (let l = 0; l < 4; l++) {
+    const ka = clamp(capas - l);
+    if (ka <= 0) continue;
+    for (let i = 0; i < SIZES[l]; i++) {
+      const x = LX[l], y = nodeY(l, i);
+      const a = acts && fwd >= 0 ? clamp(fwd - l + 1) * acts[l][i] : (l === 0 ? X7[i] * .6 : 0);
+      if (l === 0) { circle(x, y, 4.5, a > .3 ? `rgba(255,209,102,${.3 + .7 * a})` : '#34405a', null, 0, al * ka); continue; }
+      circle(x, y, l === 3 ? 24 : 19, `rgba(255,209,102,${.08 + .8 * a})`, '#8fa0c0', 2, al * ka);
+      if (l === 3) {
+        text(String(i), x, y + 1, 24, C.ink, 'center', al * ka, 700);
+        if (out) {
+          const best = argmax(out), col = i === best ? (i === OBJ ? C.good : C.bad) : '#5b6a86';
+          rect(x + 36, y - 12, Math.max(2, out[i] * 220), 24, 4, col, null, 0, al);
+          if (i === best || i === OBJ) text(pct(out[i]), x + 36 + (i === OBJ && o.objetivo ? 236 : out[i] * 220 + 12), y, 26, i === OBJ ? C.good : col, 'left', al, 700);
+        }
+      }
+    }
+  }
+  text('entrada: 64', LX[0], 130, 28, C.muted, 'center', al * clamp(capas), 600);
+  text('ocultas: 12 + 12', (LX[1] + LX[2]) / 2, 130, 28, C.muted, 'center', al * clamp(capas - 1), 600);
+  text('salida: 10', LX[3], 130, 28, C.muted, 'center', al * clamp(capas - 3), 600);
+}
+
+function escenaRed(t) {
+  const al = vis(t, 'red', 'ajuste');
+  if (al <= 0) return;
+  cuadricula(al);
+  text('el 7 real', GX + 4 * CS, GY - 30, 28, C.muted, 'center', al, 500);
+  const capas = lerp(0, 4, P(t, 'red', .1, .8));
+  const fwd = t >= F('intento', .35) ? lerp(-.2, 4.2, seg(t, F('intento', .35), F('intento', .8))) : -1;
+  const kOut = P(t, 'intento', .78, .9);
+  const back = t >= F('retro', .08) ? lerp(0, 4.2, seg(t, F('retro', .08), F('retro', .6))) : -1;
+  const culpa = 1 - P(t, 'ajuste', .05, .4);
+  const kMix = P(t, 'ajuste', .2, .7);
+  const redW = pesosMezcla(DA.red0, DA.red1, kMix);
+  const out = kOut > 0 ? OUT0.map((v, i) => lerp(v, OUT1[i], kMix) * kOut) : null;
+  const k7 = P(t, 'error', .15, .3) * (1 - P(t, 'retro', 0, .1));
+  red(t, al, { redW, acts: ACT0, fwd, back, culpa, out, capas, objetivo: k7 > .01 });
+  text(`La red dice: ${D0}`, LX[3] + 150, 900, 38, C.bad, 'center', al * P(t, 'intento', .88, .96) * (1 - P(t, 'retro', 0, .1)), 800);
+  // error
+  const kE = P(t, 'error', .02, .15);
+  text('Era un 7', GX + 4 * CS, GY + 8 * CS + 50, 40, C.good, 'center', al * kE, 800);
+  const yo = nodeY(3, OBJ), yd = nodeY(3, D0), bx = LX[3] + 36;
+  rect(bx - 4, yo - 20, 228, 40, 6, null, C.good, 3, al * k7, [8, 6]);
+  text('debía: 100%', bx + 110, yo + 38, 24, C.good, 'center', al * k7, 700);
+  text('debía: 0%', bx + 110, yd - 36, 24, C.bad, 'center', al * P(t, 'error', .5, .62) * (1 - P(t, 'retro', 0, .1)), 700);
+  const kErr = P(t, 'error', .82, .92) * (1 - P(t, 'ajuste', .85, 1));
+  text(`error = ${(kMix > .5 ? ERR1 : ERR0).toFixed(2)}`, GX + 4 * CS, GY + 8 * CS + 105, 34, C.gold, 'center', al * kErr, 700);
+  text('(−ln de la seguridad en el 7)', GX + 4 * CS, GY + 8 * CS + 145, 22, C.muted, 'center', al * kErr, 500);
+  const kR = Math.min(P(t, 'retro', .05, .15), 1 - P(t, 'ajuste', 0, .1));
+  arrow(LX[3] - 40, 935, LX[0] + 60, 935, C.bad, 4, al * kR);
+  text('más brillo rojo = más culpa (gradiente real)', (LX[0] + LX[3]) / 2, 900, 30, C.bad, 'center', al * kR, 700);
+  const kA = P(t, 'ajuste', .7, .85);
+  text(`después de un solo paso, el 7 sube de ${pct(OUT0[OBJ])} a ${pct(OUT1[OBJ])}`, (LX[0] + LX[3]) / 2, 900, 32, C.good, 'center', al * kA, 700);
+}
+
+// ───────────── 9: el error real al mover UN peso ─────────────
+function escenaMontana(t) {
+  const al = vis(t, 'montana', 'montana');
+  if (al <= 0) return;
+  const pts = DA.corte.puntos, pasos = DA.corte.pasos;
+  const w0 = pts[0][0], w1 = pts[pts.length - 1][0];
+  // eje vertical ampliado al rango real de la curva (si empezara en 0, el valle se vería plano)
+  const ls = pts.map(p => p[1]), lmin = Math.min(...ls), lmax = Math.max(...ls), pad = (lmax - lmin) * .12;
+  const px = 360, py = 220, pw = 1200, ph = 560;
+  const X = w => px + (w - w0) / (w1 - w0) * pw, Y = l => py + ph - (l - lmin + pad) / (lmax - lmin + 2 * pad) * ph;
+  const Lw = w => { // interpolación lineal sobre los puntos reales
+    const u = clamp((w - w0) / (w1 - w0)) * (pts.length - 1), i = Math.min(Math.floor(u), pts.length - 2);
+    return lerp(pts[i][1], pts[i + 1][1], u - i);
+  };
+  const kC = P(t, 'montana', .12, .25);
+  ctx.globalAlpha = al * kC;
+  const g = ctx.createLinearGradient(0, py, 0, py + ph);
+  g.addColorStop(0, 'rgba(255,84,112,.35)'); g.addColorStop(1, 'rgba(61,220,151,.25)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(X(w0), py + ph);
+  pts.forEach(([w, l]) => ctx.lineTo(X(w), Y(l))); ctx.lineTo(X(w1), py + ph); ctx.fill();
+  ctx.strokeStyle = C.ink; ctx.lineWidth = 4; ctx.beginPath();
+  pts.forEach(([w, l], i) => i ? ctx.lineTo(X(w), Y(l)) : ctx.moveTo(X(w), Y(l))); ctx.stroke();
+  ctx.strokeStyle = C.muted; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + ph); ctx.lineTo(px + pw, py + ph); ctx.stroke();
+  ctx.globalAlpha = 1;
+  text(`↑ error de la red en ${DA.corte.lote} dibujos (eje ampliado: de ${lmin.toFixed(2)} a ${lmax.toFixed(2)})`, px, py - 25, 28, C.muted, 'left', al * kC, 500);
+  text(`valor de un peso real (oculta ${DA.corte.j} → salida ${DA.corte.k}) →`, px + pw, py + ph + 40, 28, C.muted, 'right', al * kC, 500);
+  // la bolita, apoyada sobre la curva según su normal
+  const pp = seg(t, F('montana', .45), F('montana', .92)) * (pasos.length - 1);
+  const i = Math.min(Math.floor(pp), pasos.length - 2), f = ease(pp - i);
+  const w = lerp(pasos[i], pasos[i + 1], f), sx = X(w), sy = Y(Lw(w));
+  const dx = X(w + .01) - sx, dy = Y(Lw(w + .01)) - sy, n = Math.hypot(dx, dy), R = 20;
+  let nx = dy / n, ny = -dx / n; if (ny > 0) { nx = -nx; ny = -ny; }
+  for (let k = 0; k <= i; k++) circle(X(pasos[k]), Y(Lw(pasos[k])), 5, C.gold, null, 0, al * .6);
+  circle(sx + nx * R, sy + ny * R, R, C.gold, '#fff', 3, al * P(t, 'montana', .35, .45));
+  text(`paso ${i + 1}  ·  error ${Lw(w).toFixed(2)}`, sx + nx * R, sy + ny * R - 48, 28, C.gold, 'center', al * P(t, 'montana', .45, .5), 700);
+  text('peso inicial (al azar)', X(pasos[0]), Y(Lw(pasos[0])) - 70, 24, C.muted, 'center', al * P(t, 'montana', .35, .45) * (1 - P(t, 'montana', .5, .55)), 600);
+  text('fondo del valle = menos error', X(pasos[pasos.length - 1]), Y(Lw(pasos[pasos.length - 1])) + 45, 28, C.good, 'center', al * P(t, 'montana', .88, .96), 700);
+}
+
+// ───────────── 10: el entrenamiento real ─────────────
+function escenaRepetir(t) {
+  const al = vis(t, 'repetir', 'repetir');
+  if (al <= 0) return;
+  const cur = DA.curva, vmax = cur[cur.length - 1][0];
+  const k = ease(seg(t, F('repetir', .15), F('repetir', .85)));
+  const vistos = k * vmax;
+  const px = 200, py = 250, pw = 1000, ph = 560;
+  const X = v => px + v / vmax * pw, Y = a => py + ph - a * ph;
+  ctx.globalAlpha = al; ctx.strokeStyle = C.muted; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + ph); ctx.lineTo(px + pw, py + ph); ctx.stroke();
+  ctx.strokeStyle = C.good; ctx.lineWidth = 5; ctx.beginPath();
+  let ult = cur[0];
+  cur.forEach((c, i) => { if (c[0] <= vistos) { ult = c; i ? ctx.lineTo(X(c[0]), Y(c[2])) : ctx.moveTo(X(c[0]), Y(c[2])); } });
+  ctx.stroke(); ctx.globalAlpha = 1;
+  line(px, Y(.1), px + pw, Y(.1), C.muted, 1, al * .6, [6, 6]);
+  text('10% = adivinar al azar', px + pw, Y(.1) - 18, 22, C.muted, 'right', al, 500);
+  text('100%', px - 14, py, 24, C.muted, 'right', al, 500);
+  text('0%', px - 14, py + ph, 24, C.muted, 'right', al, 500);
+  text('ejemplos vistos →', px + pw, py + ph + 34, 26, C.muted, 'right', al, 500);
+  text(`dibujos vistos: ${Math.round(ult[0]).toLocaleString('es')}`, px, 190, 44, C.ink, 'left', al, 700);
+  // dentro del gráfico, abajo a la derecha: ahí la curva nunca pasa (ya está arriba)
+  text(`aciertos con dibujos nuevos: ${pct(ult[2])}`, px + pw - 20, py + ph - 150, 38, C.good, 'right', al, 800);
+  // a la derecha: el mismo 7 visto por la red en este momento del entrenamiento (interpolado real)
+  const panelX = 1330;
+  rect(panelX, 250, 440, 560, 20, C.panel, '#2c3854', 2, al);
+  text('medido sobre', panelX + 220, 300, 28, C.muted, 'center', al, 500);
+  text(`${DA.cifras.n_test.toLocaleString('es')} dibujos`, panelX + 220, 345, 40, C.ink, 'center', al, 800);
+  text('que la red nunca vio', panelX + 220, 390, 28, C.muted, 'center', al, 500);
+  DA.muestra.slice(0, 9).forEach((m, i) => digito(m.x, panelX + 70 + (i % 3) * 110, 450 + Math.floor(i / 3) * 110, 11, al * .9));
+}
+
+// ───────────── 11: resultado con los pesos finales ─────────────
+function escenaResultado(t) {
+  const al = vis(t, 'resultado', 'resultado');
+  if (al <= 0) return;
+  cuadricula(al);
+  const fwd = lerp(-.2, 4.2, seg(t, F('resultado', .1), F('resultado', .55)));
+  const kOut = P(t, 'resultado', .5, .65);
+  red(t, al, { redW: DA.redF.map(c => c.W), acts: ACTF, fwd, out: kOut > 0 ? OUTF.map(v => v * kOut) : null });
+  text(`Ahora dice: 7 ✓  (${pct(OUTF[OBJ])})`, LX[3] + 120, 900, 38, C.good, 'center', al * P(t, 'resultado', .65, .8), 800);
+  text('mismo 7, pesos ya entrenados', GX + 4 * CS, GY + 8 * CS + 50, 28, C.muted, 'center', al, 600);
+}
+
+// ───────────── 12: dibujos que nunca vio ─────────────
+function escenaMuestra(t) {
+  const al = vis(t, 'muestra', 'muestra');
+  if (al <= 0) return;
+  DA.muestra.forEach((m, i) => {
+    const k = P(t, 'muestra', .03 + i * .02, .1 + i * .02);
+    const x = 190 + (i % 8) * 200, y = 170 + Math.floor(i / 8) * 250, ok = m.pred === m.y;
+    digito(m.x, x, y, 17, al * k, ok ? C.good : C.bad);
+    text(ok ? `dice ${m.pred} ✓` : `dice ${m.pred} ✗ (era ${m.y})`, x + 68, y + 165, 24, ok ? C.good : C.bad, 'center', al * k, 700);
+  });
+}
+
+// ───────────── cierre ─────────────
+function escenaCierre(t) {
+  const al = vis(t, 'cierre', 'cierre');
+  if (al <= 0) return;
+  const pasos = ['adivinar', 'medir el error', 'repartir la culpa', 'ajustar un poquito', 'repetir'];
+  const fr = [.08, .2, .36, .52, .64], cx = W / 2, cy = 470, rx = 560, ry = 280;
+  const pos = pasos.map((_, i) => { const a = -Math.PI / 2 + i / 5 * Math.PI * 2; return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]; });
+  pasos.forEach((p, i) => {
+    const k = P(t, 'cierre', fr[i], fr[i] + .08), [x, y] = pos[i], [x2, y2] = pos[(i + 1) % 5];
+    const kA = P(t, 'cierre', fr[(i + 1) % 5] - .02, fr[(i + 1) % 5] + .06) * (i === 4 ? P(t, 'cierre', .74, .82) : 1);
+    const d = Math.hypot(x2 - x, y2 - y), ux = (x2 - x) / d, uy = (y2 - y) / d;
+    const m = Math.min(180 / Math.max(Math.abs(ux), 1e-6), 40 / Math.max(Math.abs(uy), 1e-6)) + 16;
+    arrow(x + ux * m, y + uy * m, x2 - ux * m, y2 - uy * m, C.muted, 3, al * kA);
+    rect(x - 180, y - 40, 360, 80, 40, C.panel, C.gold, 3, al * k);
+    text(p, x, y, 32, C.ink, 'center', al * k, 700);
+  });
+  text('Eso es aprender', cx, cy - 18, 60, C.gold, 'center', al * P(t, 'cierre', .8, .92), 800);
+  text('para una red neuronal', cx, cy + 45, 34, C.muted, 'center', al * P(t, 'cierre', .84, .95), 500);
+}
+
+function render(t) {
+  fondo(t);
+  escenaTitulo(t); escenaReal(t); escenaIdea(t); escenaNumeros(t); escenaNeurona(t); escenaRed(t);
+  escenaMontana(t); escenaRepetir(t); escenaResultado(t); escenaMuestra(t); escenaCierre(t);
+  titulo(t);
+  Reproductor.subtitulos(ctx, t, TI);
+  const fin = seg(t, DUR - .8, DUR);
+  if (fin > 0) { ctx.globalAlpha = fin; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+Reproductor.iniciar({ canvas: cv, render, duracion: DUR, audio: 'narracion.wav' });
+</script>
+</body>
+</html>

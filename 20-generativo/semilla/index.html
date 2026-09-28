@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Semilla (generativo)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: Consolas, monospace; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas#c { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; }
+  #pedir { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 9; }
+  #pedir input { width: 280px; padding: 10px 14px; font: 18px Consolas, monospace; border-radius: 10px; border: 1px solid #444; background: rgba(0,0,0,.6); color: #fff; }
+  #pedir button { padding: 10px 16px; font: 16px Consolas, monospace; border-radius: 10px; border: 0; background: #fff; color: #000; cursor: pointer; }
+</style>
+</head>
+<body>
+<form id="pedir"><input id="palabra" placeholder="escribe una palabra" maxlength="16" autocomplete="off"><button>crear</button></form>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="../../herramientas/movimiento.js"></script>
+<script src="../../herramientas/reproductor.js"></script>
+<script>
+// Técnica 20: generativo por semilla. La palabra que escribes es la semilla y decide TODO: la paleta, las
+// formas, la simetría, la tonalidad, el tempo, los acordes y la melodía (cada letra de la palabra canta su
+// nota al aparecer). Misma palabra → mismo universo. La música se sintetiza con WebAudio: en vivo se toca
+// la misma pista que se exporta (se genera antes, con OfflineAudioContext, y el servidor la guarda).
+// Uso: ?palabra=luz   ·   ?palabra=luz&exportar   ·   ?palabra=luz&capturas=2,10
+const q = new URLSearchParams(location.search);
+const PALABRA = (q.get('palabra') || 'luz').trim().slice(0, 16) || 'luz';
+const W = 1920, H = 1080, TAU = Math.PI * 2, M = Movimiento;
+const out = document.getElementById('c'), ctx = out.getContext('2d');
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x)), lerp = (a, b, k) => a + (b - a) * k;
+const seg = (t, a, b) => clamp((t - a) / (b - a)), suave = k => k * k * (3 - 2 * k);
+
+// ───────────── la semilla decide todo ─────────────
+function fnv(s) { let h = 2166136261; for (const c of s.toLowerCase()) { h ^= c.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const SEM = fnv(PALABRA), R = mulberry(SEM), elegir = a => a[Math.floor(R() * a.length)];
+const MODOS = { mayor: [0, 2, 4, 5, 7, 9, 11], menor: [0, 2, 3, 5, 7, 8, 10], 'dórico': [0, 2, 3, 5, 7, 9, 10], lidio: [0, 2, 4, 6, 7, 9, 11], 'pentatónico': [0, 3, 5, 7, 10] };
+const NOTAS = ['do', 'do#', 're', 're#', 'mi', 'fa', 'fa#', 'sol', 'sol#', 'la', 'la#', 'si'];
+const U = {
+  bpm: elegir([84, 92, 100, 108, 116]),
+  raiz: 45 + Math.floor(R() * 12),
+  modo: elegir(Object.keys(MODOS)),
+  progresion: elegir([[0, 5, 3, 4], [0, 3, 4, 3], [5, 3, 0, 4], [0, 4, 5, 3], [0, 2, 3, 4], [0, 5, 1, 4]]),
+  arpegio: elegir([[0, 1, 2, 1], [0, 2, 1, 2], [0, 1, 2, 3], [2, 1, 0, 1]]),
+  motivo: Array.from({ length: 8 }, () => R() < .3 ? null : Math.floor(R() * 7)),
+  tono: R() * 360, esquema: elegir([40, 150, 180, 210, 300]),
+  simetria: 3 + Math.floor(R() * 9),
+  formas: [elegir(['rosa', 'estrella']), elegir(['lissajous', 'onda']), elegir(['espiral', 'flor'])],
+  giro: (R() < .5 ? -1 : 1) * (.05 + R() * .1),
+};
+const ESCALA = MODOS[U.modo], nota = g => U.raiz + ESCALA[((g % ESCALA.length) + ESCALA.length) % ESCALA.length] + 12 * Math.floor(g / ESCALA.length);
+const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+const BEAT = 60 / U.bpm, INICIO = .2, T = b => INICIO + b * BEAT, COMPASES = 16, DUR = T(COMPASES * 4) + 1.2;
+const color = (k, l = 62, a = 1) => `hsla(${(U.tono + k * U.esquema) % 360},75%,${l}%,${a})`;
+const letras = [...PALABRA.toUpperCase()];
+const notaLetra = i => nota(7 + (letras[i].codePointAt(0) % ESCALA.length));  // cada letra canta su nota
+
+// ───────────── la música (WebAudio, determinista) ─────────────
+async function musica() {
+  const sr = 44100, ac = new OfflineAudioContext(2, Math.ceil(DUR * sr), sr);
+  const master = ac.createGain(); master.gain.value = .8;
+  const rev = ac.createConvolver(); { const n = sr * 2.6, b = ac.createBuffer(2, n, sr), r = mulberry(SEM ^ 77); for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < n; i++) d[i] = (r() * 2 - 1) * Math.pow(1 - i / n, 3); } rev.buffer = b; }
+  const envio = ac.createGain(); envio.gain.value = .28; envio.connect(rev); rev.connect(ac.destination); master.connect(ac.destination); master.connect(envio);
+  const env = (g, t, a, v, d) => { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + a); g.gain.exponentialRampToValueAtTime(.0001, t + a + d); };
+  const osc = (tipo, f, t, dur, v, a = .005, destino = master, detune = 0) => { const o = ac.createOscillator(), g = ac.createGain(); o.type = tipo; o.frequency.value = f; o.detune.value = detune; env(g, t, a, v, dur); o.connect(g).connect(destino); o.start(t); o.stop(t + a + dur + .05); };
+  const filtro = ac.createBiquadFilter(); filtro.type = 'lowpass'; filtro.frequency.value = 900; filtro.connect(master);
+  const ruido = ac.createBuffer(1, sr, sr); { const d = ruido.getChannelData(0), r = mulberry(SEM ^ 5); for (let i = 0; i < sr; i++) d[i] = r() * 2 - 1; }
+  const acorde = c => { const g = U.progresion[c % 4]; return [nota(g), nota(g + 2), nota(g + 4)]; };
+  // cada letra, una campana al aparecer (compases 0–2)
+  letras.forEach((_, i) => { const t = T(i * Math.min(1, 7 / letras.length)), f = hz(notaLetra(i) + 12); osc('sine', f, t, 1.6, .22); osc('sine', f * 2.76, t, .6, .05); });
+  for (let c = 0; c < COMPASES; c++) {
+    const [a, b, d] = acorde(c), t0 = T(c * 4);
+    const pad = c < 15; if (pad) for (const m of [a, b, d, a + 12]) { osc('sawtooth', hz(m), t0, BEAT * 4.2, .035, .6, filtro, -7); osc('sawtooth', hz(m), t0, BEAT * 4.2, .035, .6, filtro, 7); }
+    if (c >= 2 && c < 14) for (let s = 0; s < 8; s++) { const tono = [a, b, d, a + 12][U.arpegio[s % 4]] + 12; osc('triangle', hz(tono), t0 + s * BEAT / 2, .28, c < 4 ? .05 : .08); }
+    if (c >= 4 && c < 12) {
+      for (const s of [0, 2]) osc('triangle', hz(a - 12), t0 + s * BEAT, BEAT * 1.6, .16, .01);
+      for (let s = 0; s < 4; s++) { const t = t0 + s * BEAT, o = ac.createOscillator(), g = ac.createGain(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(42, t + .14); env(g, t, .002, .5, .32); o.connect(g).connect(master); o.start(t); o.stop(t + .4); }
+      for (let s = 0; s < 8; s++) { const t = t0 + s * BEAT / 2 + BEAT / 4, n = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(); n.buffer = ruido; f.type = 'highpass'; f.frequency.value = 7000; env(g, t, .001, .05, .05); n.connect(f).connect(g).connect(master); n.start(t, (s * .1) % .9, .1); }
+      U.motivo.forEach((g, s) => { if (g !== null && c % 2 === 1) { const f = hz(nota(g + 7) + 12); osc('sine', f, t0 + s * BEAT / 2, .9, .1); osc('sine', f * 3, t0 + s * BEAT / 2, .3, .02); } });
+    }
+  }
+  // el acorde final, con la palabra de vuelta
+  const [a, b, d] = acorde(0); for (const m of [a, b, d, a + 12, a + 24]) osc('sine', hz(m + 12), T(60), 3.5, .07, .02);
+  const buf = await ac.startRendering();
+  // a WAV de 16 bits
+  const n = buf.length, datos = new DataView(new ArrayBuffer(44 + n * 4)), esc = (o, s) => [...s].forEach((c, i) => datos.setUint8(o + i, c.charCodeAt(0)));
+  esc(0, 'RIFF'); datos.setUint32(4, 36 + n * 4, true); esc(8, 'WAVE'); esc(12, 'fmt '); datos.setUint32(16, 16, true); datos.setUint16(20, 1, true); datos.setUint16(22, 2, true);
+  datos.setUint32(24, sr, true); datos.setUint32(28, sr * 4, true); datos.setUint16(32, 4, true); datos.setUint16(34, 16, true); esc(36, 'data'); datos.setUint32(40, n * 4, true);
+  // volumen de plataforma: RMS a ~−16 dBFS y un limitador suave (tanh) para los picos (≈ −14 LUFS)
+  const L = buf.getChannelData(0), Rr = buf.getChannelData(1); let e = 0; for (let i = 0; i < n; i++) e += L[i] * L[i] + Rr[i] * Rr[i];
+  const k = .16 / Math.sqrt(e / (2 * n) + 1e-12), lim = x => Math.tanh(x * k * 1.1) / Math.tanh(1.1) * .89;
+  for (let i = 0; i < n; i++) { datos.setInt16(44 + i * 4, clamp(lim(L[i]), -1, 1) * 32767, true); datos.setInt16(46 + i * 4, clamp(lim(Rr[i]), -1, 1) * 32767, true); }
+  return new Blob([datos], { type: 'audio/wav' });
+}
+
+// ───────────── las formas ─────────────
+const N = 2400, K = U.simetria;
+const PAL = M.puntosDeTexto(PALABRA.toUpperCase(), `700 ${Math.min(380, 1500 / Math.max(3, letras.length) * 1.6)}px Georgia, serif`, N, SEM % 1000);
+function forma(tipo, i) {
+  const u = i / N, r2 = mulberry(i * 7 + SEM)();
+  switch (tipo) {
+    case 'rosa': { const th = u * TAU * 2, r = 400 * Math.cos(K / 2 * th) + (r2 - .5) * 34; return [Math.cos(th) * r, Math.sin(th) * r]; }
+    case 'estrella': { const th = u * TAU, pico = Math.pow(Math.abs(Math.cos(th * K / 2)), 3), r = 160 + 260 * pico + r2 * 20; return [Math.cos(th) * r, Math.sin(th) * r]; }
+    case 'lissajous': { const th = u * TAU; return [Math.sin(K * th + .5) * 480, Math.sin((K + 1) * th) * 360]; }
+    case 'onda': { const anillo = Math.floor(u * 6), th = (u * 6 % 1) * TAU, r = 90 + anillo * 62 + Math.sin(th * K) * 18; return [Math.cos(th) * r, Math.sin(th) * r]; }
+    case 'espiral': { const th = i * 2.39996, r = 11 * Math.sqrt(i); return [Math.cos(th) * r * .95, Math.sin(th) * r * .95]; }
+    case 'flor': { const p = i % K, v = Math.floor(i / K) / (N / K), th = p / K * TAU + v * 1.2, r = v * 440; return [Math.cos(th) * r, Math.sin(th) * r * .92]; }
+  }
+}
+const FORMAS = U.formas.map(f => Array.from({ length: N }, (_, i) => forma(f, i)));
+const ORDEN = Array.from({ length: N }, (_, i) => mulberry(i + SEM)());          // desfase de cada partícula
+
+// dónde está la partícula i: palabra → forma A (c2) → B (c6) → C (c10) → palabra otra vez (c13)
+function lugar(i, t) {
+  const d = ORDEN[i] * BEAT * 2;
+  const tramos = [[T(8), FORMAS[0]], [T(24), FORMAS[1]], [T(40), FORMAS[2]], [T(52), PAL]];
+  let p = PAL[i];
+  for (let j = 0; j < tramos.length; j++) {
+    const [tj, destino] = tramos[j], k = suave(seg(t, tj + d, tj + d + BEAT * 3));
+    if (k <= 0) break;
+    const q = destino === PAL ? destino[i] : giro(destino[i], t, j);
+    p = [lerp(p[0], q[0], k), lerp(p[1], q[1], k)];
+  }
+  return p;
+}
+function giro([x, y], t, j) { const a = t * U.giro * (j === 3 ? 2.2 : 1); return [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)]; }
+// cuánto late todo en este instante (golpes de los compases 4–12)
+function latido(t) { const b = (t - INICIO) / BEAT; if (b < 16 || b >= 48) return 0; const f = b % 1; return Math.exp(-f * 6); }
+
+// ───────────── el cuadro ─────────────
+let FONDO;
+function render(t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(FONDO, 0, 0);
+  const lat = latido(t), cx = W / 2, cy = H / 2 - 20;
+  // anillos en cada golpe
+  const b = (t - INICIO) / BEAT;
+  if (b >= 16 && b < 48) { for (let k = 0; k < 3; k++) { const f = ((b - k) % 4 + 4) % 4 / 4, r = 60 + f * 900; ctx.strokeStyle = color(.5, 70, (1 - f) * .18); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.stroke(); } }
+  // partículas con brillo
+  ctx.globalCompositeOperation = 'lighter';
+  const escala = 1 + lat * .05;
+  for (let i = 0; i < N; i++) {
+    const [x, y] = lugar(i, t), px = cx + x * escala, py = cy + y * escala, u = i / N;
+    ctx.fillStyle = color(u, 58 + lat * 20, .75); ctx.fillRect(px - 1.4, py - 1.4, 2.8, 2.8);
+    if (i % 6 === 0) { ctx.fillStyle = color(u, 60, .08 + lat * .06); ctx.beginPath(); ctx.arc(px, py, 7 + lat * 5, 0, TAU); ctx.fill(); }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  // las letras, una por nota, al principio (antes de volverse partículas)
+  const kLetras = 1 - seg(t, T(7.5), T(9));
+  if (kLetras > 0) {
+    ctx.save(); ctx.font = `700 ${Math.min(380, 1500 / Math.max(3, letras.length) * 1.6)}px Georgia, serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    const ancho = ctx.measureText(PALABRA.toUpperCase()).width; let x = cx - ancho / 2;
+    letras.forEach((l, i) => { const k = seg(t, T(i * Math.min(1, 7 / letras.length)), T(i * Math.min(1, 7 / letras.length)) + .35); ctx.globalAlpha = k * kLetras * .9; ctx.fillStyle = color(i / letras.length, 70); ctx.fillText(l, x, cy + (1 - k) * 30); x += ctx.measureText(l).width; });
+    ctx.restore();
+  }
+  // la ficha del universo: al principio chica, al final grande
+  ctx.save(); ctx.font = '22px Consolas, monospace'; ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.textAlign = 'center';
+  const ficha = `«${PALABRA}» · ${NOTAS[U.raiz % 12]} ${U.modo} · ${U.bpm} bpm · simetría ${K} · ${U.formas.join(' → ')}`;
+  const kf = Math.max(seg(t, T(1), T(3)) * (1 - seg(t, T(8), T(10))), seg(t, T(58), T(60)));
+  if (kf > 0) { ctx.globalAlpha = kf; ctx.fillText(ficha, W / 2, H - 70); }
+  if (t > T(59)) { ctx.globalAlpha = seg(t, T(59), T(60.5)); ctx.font = '26px Consolas, monospace'; ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.fillText('misma palabra, mismo universo', W / 2, 90); }
+  ctx.restore();
+  const negro = Math.max(1 - seg(t, 0, .8), seg(t, DUR - .8, DUR)); if (negro > 0) { ctx.fillStyle = `rgba(0,0,0,${negro})`; ctx.fillRect(0, 0, W, H); }
+}
+
+function preparar() {
+  FONDO = document.createElement('canvas'); FONDO.width = W; FONDO.height = H;
+  const g = FONDO.getContext('2d'), r = g.createRadialGradient(W / 2, H / 2, 50, W / 2, H / 2, W * .7);
+  r.addColorStop(0, color(.2, 12)); r.addColorStop(1, color(.6, 3)); g.fillStyle = r; g.fillRect(0, 0, W, H);
+}
+
+const pedir = document.getElementById('pedir');
+if (q.has('exportar') || q.has('capturas')) pedir.style.display = 'none';
+document.getElementById('palabra').value = PALABRA;
+pedir.onsubmit = e => { e.preventDefault(); const v = document.getElementById('palabra').value.trim(); if (v) location.search = '?palabra=' + encodeURIComponent(v); };
+preparar();
+document.title = `Semilla: ${PALABRA}`;
+(async () => {
+  if (q.has('capturas')) return Reproductor.iniciar({ canvas: out, render, duracion: DUR, desenfoque: 1 });
+  const wav = await musica();
+  if (q.has('exportar')) {                                      // la pista va al servidor antes de exportar
+    const ruta = location.pathname.replace(/^\//, '').replace(/\/[^/]*\.html$/, '').replace(/\/$/, '');
+    await fetch('/audio?video=' + encodeURIComponent(ruta), { method: 'POST', body: wav });
+  }
+  Reproductor.iniciar({ canvas: out, render, duracion: DUR, audio: URL.createObjectURL(wav), desenfoque: 2 });
+})().catch(e => { console.error(e); ctx.fillStyle = '#fff'; ctx.font = '40px sans-serif'; ctx.fillText(e.message, 80, 540); });
+</script>
+</body>
+</html>

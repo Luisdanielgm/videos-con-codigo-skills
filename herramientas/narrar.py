@@ -1,0 +1,169 @@
+"""Convierte el guion de un video en narración con una voz local.
+
+Uso:  .venv/Scripts/python herramientas/narrar.py <carpeta-del-video>
+
+Lee <carpeta>/guion.json y escribe en la misma carpeta:
+  - narracion.wav : todas las frases seguidas, con pausas.
+  - tiempos.js    : window.TIEMPOS con inicio y duración de cada frase, para sincronizar la animación.
+
+Voces: **"supertonic:M5"** (el narrador recomendado; Supertonic-3 corre en un entorno aparte,
+externos/voz-env, y este script lo llama allá), Kokoro (ids como "em_alex", "ef_dora") o Piper
+(nombre de archivo en modelos/, p. ej. "es_MX-ald-medium"). Cada frase se guarda en caché por su texto,
+voz, velocidad y tono: cambiar una frase sólo regenera esa. Para pasar un video viejo a la voz nueva basta
+con "voz": "supertonic:M5" en su guion.json.
+
+Historias con varias voces: "personajes": {"nina": {"voz": "ef_dora", "tono": 3}} y en cada
+segmento "quien": "nina". "tono" sube o baja la voz en semitonos (ffmpeg rubberband).
+"""
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import wave
+from pathlib import Path
+
+import numpy as np
+import soundfile as sf
+
+RAIZ = Path(__file__).resolve().parent.parent
+MOD = RAIZ / "modelos"
+CACHE = RAIZ / "render" / "voz_cache"
+SR = 24000
+INICIO = 0.6  # silencio antes de la primera frase (s)
+FINAL = 1.5   # silencio después de la última (s)
+
+
+def remuestrear(audio, sr):
+    if sr == SR:
+        return audio
+    x = np.linspace(0, len(audio), int(len(audio) * SR / sr), endpoint=False)
+    return np.interp(x, np.arange(len(audio)), audio).astype(np.float32)
+
+
+def cambiar_tono(audio, semitonos):
+    tmp_in, tmp_out = CACHE / "_tono_in.wav", CACHE / "_tono_out.wav"
+    sf.write(tmp_in, audio, SR)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(tmp_in), "-af",
+                    f"rubberband=pitch={2 ** (semitonos / 12):.5f}", str(tmp_out)], check=True)
+    return sf.read(tmp_out, dtype="float32")[0]
+
+
+_voces = {}
+
+
+def voz(nombre, velocidad):
+    if (nombre, velocidad) not in _voces:
+        _voces[(nombre, velocidad)] = Voz(nombre, velocidad)
+    return _voces[(nombre, velocidad)]
+
+
+_kokoro = None
+
+
+# el Python del entorno de Supertonic (en Linux/macOS: externos/voz-env/bin/python); se cambia con VIDEOS_VOZ_PYTHON
+VOZ_ENV = Path(os.environ.get("VIDEOS_VOZ_PYTHON", RAIZ / "externos" / "voz-env" / "Scripts" / "python.exe"))
+
+
+def supertonic_lote(pedidos):
+    """Corre DENTRO de externos/voz-env (donde está supertonic): [{texto, estilo, vel, salida}] → WAV a 24 kHz.
+    El modelo se carga una sola vez para todas las frases."""
+    from supertonic import TTS
+    tts = TTS(model="supertonic-3")
+    for p in pedidos:
+        wav, _ = tts.synthesize(p["texto"], voice_style=tts.get_voice_style(p["estilo"]), lang="es", total_steps=16, speed=p["vel"])
+        sf.write(p["salida"], remuestrear(np.squeeze(np.asarray(wav, np.float32)), tts.sample_rate), SR)
+
+
+def clave_de(nombre, vel, tono, texto):
+    # sin tono, la clave queda igual que antes: la caché de los videos viejos sigue valiendo
+    extra = f"|{tono}" if tono else ""
+    return hashlib.sha1(f"{nombre}|{vel}{extra}|{texto}".encode()).hexdigest()[:16]
+
+
+class Voz:
+    def __init__(self, nombre, velocidad):
+        global _kokoro
+        self.nombre, self.velocidad = nombre, velocidad
+        self.kokoro = self.piper = None
+        if nombre.startswith("supertonic:"):
+            self.estilo = nombre.split(":", 1)[1]
+        elif (MOD / f"{nombre}.onnx").exists():
+            from piper import PiperVoice
+            self.piper = PiperVoice.load(str(MOD / f"{nombre}.onnx"))
+            self.kokoro = None
+        else:
+            if _kokoro is None:
+                from kokoro_onnx import Kokoro
+                _kokoro = Kokoro(str(MOD / "kokoro-v1.0.int8.onnx"), str(MOD / "voices-v1.0.bin"))
+            self.kokoro = _kokoro
+
+    def decir(self, texto):
+        if self.nombre.startswith("supertonic:"):
+            tmp = CACHE / "_supertonic.wav"
+            pedido = [{"texto": texto, "estilo": self.estilo, "vel": self.velocidad, "salida": str(tmp)}]
+            subprocess.run([str(VOZ_ENV), __file__, "--supertonic"], input=json.dumps(pedido).encode("utf-8"), check=True)
+            return sf.read(tmp, dtype="float32")[0]
+        if self.kokoro:
+            audio, sr = self.kokoro.create(texto, voice=self.nombre, speed=self.velocidad, lang="es")
+            return remuestrear(np.asarray(audio, dtype=np.float32), sr)
+        tmp = CACHE / "_piper.wav"
+        with wave.open(str(tmp), "wb") as wf:
+            self.piper.synthesize_wav(texto, wf)
+        audio, sr = sf.read(tmp, dtype="float32")
+        return remuestrear(audio, sr)
+
+
+def main(carpeta):
+    carpeta = Path(carpeta).resolve()
+    g = json.loads((carpeta / "guion.json").read_text(encoding="utf-8"))
+    base = {"voz": g.get("voz", "em_alex"), "velocidad": g.get("velocidad", 1.0), "tono": 0}
+    personajes, pausa = g.get("personajes", {}), g.get("pausa", 0.7)
+    CACHE.mkdir(parents=True, exist_ok=True)
+    # las frases de Supertonic que faltan se generan todas juntas (el modelo se carga una vez)
+    lote = []
+    for s in g["segmentos"]:
+        c = {**base, **personajes.get(s.get("quien"), {})}
+        if c["voz"].startswith("supertonic:") and not c["tono"]:
+            arch = CACHE / f"{clave_de(c['voz'], c['velocidad'], 0, s['texto'])}.wav"
+            if not arch.exists():
+                lote.append({"texto": s["texto"], "estilo": c["voz"].split(":", 1)[1], "vel": c["velocidad"], "salida": str(arch)})
+    if lote:
+        print(f"supertonic: {len(lote)} frases nuevas")
+        subprocess.run([str(VOZ_ENV), __file__, "--supertonic"], input=json.dumps(lote).encode("utf-8"), check=True)
+    pistas, tiempos, t = [np.zeros(int(INICIO * SR), np.float32)], {}, INICIO
+    for s in g["segmentos"]:
+        c = {**base, **personajes.get(s.get("quien"), {})}
+        nombre, vel, tono = c["voz"], c["velocidad"], c["tono"]
+        archivo = CACHE / f"{clave_de(nombre, vel, tono, s['texto'])}.wav"
+        if archivo.exists():
+            audio, _ = sf.read(archivo, dtype="float32")
+        else:
+            audio = voz(nombre, vel).decir(s["texto"])
+            if tono:
+                audio = cambiar_tono(audio, tono)
+            sf.write(archivo, audio, SR)
+        dur = len(audio) / SR
+        tiempos[s["id"]] = {"inicio": round(t, 3), "dur": round(dur, 3), "texto": s["texto"]}
+        if "quien" in s:
+            tiempos[s["id"]]["quien"] = s["quien"]
+        pistas.append(audio)
+        hueco = s.get("pausa", pausa)
+        pistas.append(np.zeros(int(hueco * SR), np.float32))
+        t += dur + hueco
+        print(f"{s['id']:<12} {tiempos[s['id']]['inicio']:7.2f}s  {dur:5.2f}s")
+    pistas.append(np.zeros(int(FINAL * SR), np.float32))
+    total = round(t + FINAL, 3)
+    sf.write(carpeta / "narracion.wav", np.concatenate(pistas), SR)
+    orden = [s["id"] for s in g["segmentos"]]
+    js = "window.TIEMPOS = " + json.dumps({"total": total, "orden": orden, "seg": tiempos},
+                                          ensure_ascii=False, indent=1) + ";\n"
+    (carpeta / "tiempos.js").write_text(js, encoding="utf-8")
+    print(f"total {total:.1f}s -> narracion.wav, tiempos.js")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:2] == ["--supertonic"]:                 # llamado desde main()/decir(), ya dentro de voz-env
+        supertonic_lote(json.loads(sys.stdin.buffer.read().decode("utf-8")))
+    else:
+        main(sys.argv[1] if len(sys.argv) > 1 else ".")

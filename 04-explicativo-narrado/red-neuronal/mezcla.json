@@ -1,0 +1,6 @@
+{
+ "cancion": {"archivo": "recursos/musica/mixkit-759-vastness.mp3", "desde": 0, "volumen": 0.25,
+             "entrada": 2, "salida": 3, "bucle": true, "cruce": 4},
+ "voz": "narracion.wav",
+ "lufs": -14
+}

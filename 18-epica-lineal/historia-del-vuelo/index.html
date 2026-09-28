@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>La historia del vuelo (épica lineal)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas#c { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="pulsos.js"></script>
+<script src="../../herramientas/reproductor.js"></script>
+<script>
+// Técnica 18: épica histórica en dibujo lineal. Sin imágenes: cada dibujo son trazos que se dibujan solos.
+// Arco por épocas (mito → bocetos → globo → avión → cielo lleno → cohete → telescopio → constelación), el
+// estilo cambia con la época (papel y tinta para el pasado; la tinta inunda el cuadro y el espacio es luz
+// sobre negro), una sola toma (la cámara recorre el papel y después sube al espacio), titulares con serifa y
+// una palabra de acento, elementos repetidos en perspectiva, y el final repite el principio.
+// Fechas: Ícaro (mito griego), máquinas voladoras de Leonardo (c. 1490), primer vuelo tripulado en globo de
+// los Montgolfier (1783), primer vuelo de los Wright (1903, 12 segundos), Apolo 11 (1969), James Webb (2021).
+const PU = window.PULSOS, W = 1920, H = 1080, TAU = Math.PI * 2;
+const BEAT = 60 / PU.bpm, T = p => PU.inicio + p * BEAT, DUR = T(98);
+const out = document.getElementById('c'), ctx = out.getContext('2d');
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x)), lerp = (a, b, k) => a + (b - a) * k;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const suave = k => k * k * (3 - 2 * k), salida = k => 1 - Math.pow(1 - k, 3);
+const PAPEL = '#efe4c8', TINTA = '#2b1d10', ROJO = '#b3321d', NOCHE = '#05070d', LUZ = '#d9ecff', ORO = '#f2c14e';
+const SERIF = '"Georgia Pro", Georgia, "Times New Roman", serif', MONO = 'Consolas, "Courier New", monospace';
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// ───────────── trazos que se dibujan solos ─────────────
+// Un dibujo es una lista de trazos (polilíneas). Se dibuja hasta una fracción de su largo total, en orden.
+// Cada punto lleva un temblor de pluma fijo (a mano, pero sin «hervir»).
+function Dibujo(semilla = 1) { this.t = []; this.r = mulberry(semilla); }
+Dibujo.prototype.add = function (pts, w = 2.2, color = null) {
+  const r = this.r, f1 = r() * 9, f2 = r() * 9, amp = 1.1;
+  let L = 0; const p = pts.map((q, i) => { if (i) L += Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]); return [q[0] + Math.sin(L * .031 + f1) * amp, q[1] + Math.sin(L * .027 + f2) * amp]; });
+  const cum = [0]; for (let i = 1; i < p.length; i++) cum.push(cum[i - 1] + Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]));
+  this.t.push({ p, cum, len: cum[cum.length - 1], w, color }); return this;
+};
+Dibujo.prototype.total = function () { return this.t.reduce((a, s) => a + s.len, 0); };
+const muestrear = (f, n) => Array.from({ length: n + 1 }, (_, i) => f(i / n));
+const L_ = (a, b) => muestrear(u => [lerp(a[0], b[0], u), lerp(a[1], b[1], u)], Math.max(2, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 8)));
+const ARC = (cx, cy, rx, ry, a0, a1) => muestrear(u => { const a = lerp(a0, a1, u); return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]; }, Math.max(8, Math.ceil(Math.abs(a1 - a0) * Math.max(rx, ry) / 8)));
+const BEZ = (p0, p1, p2, p3) => muestrear(u => { const v = 1 - u; return [v * v * v * p0[0] + 3 * v * v * u * p1[0] + 3 * v * u * u * p2[0] + u * u * u * p3[0], v * v * v * p0[1] + 3 * v * v * u * p1[1] + 3 * v * u * u * p2[1] + u * u * u * p3[1]]; }, 40);
+const QB = (p0, c, p1) => muestrear(u => { const v = 1 - u; return [v * v * p0[0] + 2 * v * u * c[0] + u * u * p1[0], v * v * p0[1] + 2 * v * u * c[1] + u * u * p1[1]]; }, 30);
+const POLI = (pts, cerrado) => { const o = []; const q = cerrado ? pts.concat([pts[0]]) : pts; for (let i = 1; i < q.length; i++) o.push(...L_(q[i - 1], q[i]).slice(i > 1 ? 1 : 0)); return o; };
+
+// dibuja hasta la fracción k; devuelve la punta de la pluma
+function trazar(D, k, { color = TINTA, brillo = 0, grosor = 1 } = {}) {
+  const tope = clamp(k) * D.total(); let hecho = 0, punta = null;
+  ctx.save(); ctx.lineCap = ctx.lineJoin = 'round';
+  if (brillo) { ctx.shadowColor = color; ctx.shadowBlur = brillo; }
+  for (const s of D.t) {
+    if (hecho >= tope) break;
+    const quiero = Math.min(s.len, tope - hecho);
+    ctx.strokeStyle = s.color || color; ctx.lineWidth = s.w * grosor; ctx.beginPath(); ctx.moveTo(s.p[0][0], s.p[0][1]);
+    let i = 1; for (; i < s.p.length && s.cum[i] <= quiero; i++) ctx.lineTo(s.p[i][0], s.p[i][1]);
+    if (i < s.p.length) { const f = (quiero - s.cum[i - 1]) / (s.cum[i] - s.cum[i - 1] || 1); const x = lerp(s.p[i - 1][0], s.p[i][0], f), y = lerp(s.p[i - 1][1], s.p[i][1], f); ctx.lineTo(x, y); punta = [x, y]; }
+    ctx.stroke(); hecho += s.len;
+  }
+  ctx.restore(); return k < 1 ? punta : null;
+}
+
+// ───────────── los dibujos ─────────────
+function icaro() {                                           // mito griego: alas de plumas y cera, el sol
+  const D = new Dibujo(11);
+  D.add(ARC(430, -250, 96, 96, 0, TAU), 2.6);
+  for (let i = 0; i < 20; i++) { const a = i * TAU / 20, r1 = 118, r2 = i % 2 ? 150 : 178; D.add(L_([430 + Math.cos(a) * r1, -250 + Math.sin(a) * r1], [430 + Math.cos(a) * r2, -250 + Math.sin(a) * r2]), 2); }
+  D.add(ARC(0, -150, 24, 26, 0, TAU), 2.4);
+  D.add(POLI([[-20, -122], [-16, 40]]), 2.4).add(POLI([[20, -122], [16, 40]]), 2.4);
+  D.add(POLI([[-16, 40], [-30, 190], [-44, 200]]), 2.2).add(POLI([[16, 40], [22, 190], [8, 204]]), 2.2).add(POLI([[-2, 50], [-8, 185]]), 1.6);
+  for (const s of [-1, 1]) {
+    const hombro = [s * 24, -112], p1 = [s * 190, -250], p2 = [s * 330, -250], punta = [s * 450, -205];
+    D.add(BEZ(hombro, p1, p2, punta), 3);
+    for (let i = 0; i < 12; i++) {
+      const u = .08 + i / 12 * .9, v = 1 - u;
+      const b = [v * v * v * hombro[0] + 3 * v * v * u * p1[0] + 3 * v * u * u * p2[0] + u * u * u * punta[0], v * v * v * hombro[1] + 3 * v * v * u * p1[1] + 3 * v * u * u * p2[1] + u * u * u * punta[1]];
+      const ang = lerp(.12, .9, u), largo = 110 + u * 175, dir = [s * Math.sin(ang), Math.cos(ang)], n = [-dir[1] * s, dir[0] * s];
+      const tip = [b[0] + dir[0] * largo, b[1] + dir[1] * largo], mid = [b[0] + dir[0] * largo * .55, b[1] + dir[1] * largo * .55];
+      D.add(QB(b, [mid[0] + n[0] * 16, mid[1] + n[1] * 16], tip), 1.6).add(QB(b, [mid[0] - n[0] * 10, mid[1] - n[1] * 10], tip), 1.2);
+    }
+  }
+  const pluma = (x, y, a) => { const d = [Math.cos(a) * 36, Math.sin(a) * 36], n = [-d[1] * .25, d[0] * .25]; D.add(QB([x, y], [x + d[0] / 2 + n[0], y + d[1] / 2 + n[1]], [x + d[0], y + d[1]]), 1.4).add(QB([x, y], [x + d[0] / 2 - n[0], y + d[1] / 2 - n[1]], [x + d[0], y + d[1]]), 1.1); };
+  pluma(260, 170, 1.2); pluma(330, 260, .7); pluma(190, 300, 1.8);
+  return D;
+}
+function greca() {                                           // greca griega arriba del mito
+  const D = new Dibujo(12), y0 = -420, u = 14;
+  D.add(L_([-900, y0 - 5 * u], [900, y0 - 5 * u]), 1.6).add(L_([-900, y0 + u], [900, y0 + u]), 1.6);
+  for (let x = -896; x < 880; x += 6 * u) D.add(POLI([[x, y0], [x, y0 - 4 * u], [x + 4 * u, y0 - 4 * u], [x + 4 * u, y0 - u], [x + u, y0 - u], [x + u, y0 - 3 * u], [x + 3 * u, y0 - 3 * u], [x + 3 * u, y0 - 2 * u], [x + 2 * u, y0 - 2 * u]]), 1.5);
+  return D;
+}
+function leonardo() {                                        // boceto de máquina voladora con alas de murciélago
+  const D = new Dibujo(22);
+  D.add(POLI([[-110, -20], [110, -20], [110, 30], [-110, 30]], true), 2.2).add(L_([-110, -20], [110, 30]), 1.4).add(L_([-110, 30], [110, -20]), 1.4);
+  for (const x of [-70, 70]) { D.add(ARC(x, 5, 20, 20, 0, TAU), 2); for (let i = 0; i < 6; i++) { const a = i * TAU / 6; D.add(L_([x, 5], [x + Math.cos(a) * 20, 5 + Math.sin(a) * 20]), 1.1); } }
+  D.add(ARC(-150, -2, 14, 14, 0, TAU), 1.8).add(L_([-136, 0], [100, -4]), 1.8);
+  for (const s of [-1, 1]) {
+    const raiz = [s * 110, -15], J = [s * 330, -218], ex = [s * 570, -236];
+    const T = [[s * 610, -120], [s * 565, 20], [s * 455, 92], [s * 322, 112], [s * 190, 72]];
+    D.add(QB(raiz, [s * 250, -280], J), 3).add(QB(J, [s * 470, -250], ex), 2.6);
+    D.add(L_(ex, T[0]), 1.8);
+    T.forEach(q => D.add(QB(J, [lerp(J[0], q[0], .5) + s * 14, lerp(J[1], q[1], .5)], q), 1.7));
+    D.add(QB(raiz, [lerp(raiz[0], T[4][0], .5), lerp(raiz[1], T[4][1], .5) - 12], T[4]), 1.7);
+    for (let i = 0; i < 4; i++) { const a = T[i], b = T[i + 1]; D.add(QB(a, [lerp(a[0], J[0], .22) * .5 + lerp(b[0], J[0], .22) * .5, lerp(a[1], J[1], .22) * .5 + lerp(b[1], J[1], .22) * .5], b), 1.5); }
+    for (let i = 1; i < 12; i++) { const f = i / 12, a = [lerp(J[0], T[1][0], f), lerp(J[1], T[1][1], f)], b = [lerp(J[0], T[2][0], f), lerp(J[1], T[2][1], f)]; D.add(L_(a, b), .9); }
+    for (let i = 1; i < 9; i++) { const f = i / 9, a = [lerp(J[0], T[3][0], f), lerp(J[1], T[3][1], f)], b = [lerp(J[0], T[4][0], f), lerp(J[1], T[4][1], f)]; D.add(L_(a, b), .9); }
+  }
+  const r = mulberry(5);                                      // notas «en espejo»: líneas de escritura
+  for (let l = 0; l < 6; l++) { let x = 400; const y = 190 + l * 28; while (x < 840) { const n = 20 + r() * 60; D.add(muestrear(u => [x + u * n, y + Math.sin(u * n * .5) * 4 + Math.sin(u * n * .19) * 2], Math.ceil(n / 3)), 1.1); x += n + 12 + r() * 10; } }
+  D.add(ARC(-620, 250, 52, 52, 0, TAU), 1.6).add(QB([-680, 330], [-620, 370], [-560, 330]), 1.4).add(POLI([[-574, 320], [-560, 330], [-576, 338]]), 1.4);
+  return D;
+}
+function globo() {                                           // globo de los Montgolfier (1783)
+  const D = new Dibujo(33);
+  const lado = muestrear(u => { if (u < .62) { const a = lerp(-Math.PI / 2, .6, u / .62); return [Math.cos(a) * 205, -150 + Math.sin(a) * 205]; } const v = (u - .62) / .38, p0 = [Math.cos(.6) * 205, -150 + Math.sin(.6) * 205]; const w = 1 - v; return [w * w * w * p0[0] + 3 * w * w * v * 150 + 3 * w * v * v * 90 + v * v * v * 72, w * w * w * p0[1] + 3 * w * w * v * 70 + 3 * w * v * v * 190 + v * v * v * 240]; }, 90);
+  D.add(lado.map(([x, y]) => [-x, y]).reverse().concat(lado), 2.8);
+  [-.62, -.3, 0, .3, .62].forEach(s => D.add(lado.map(([x, y]) => [x * s, y]), 1.3));
+  const ancho = y => { let m = 0; lado.forEach(([x, yy]) => { if (Math.abs(yy - y) < 8) m = Math.max(m, x); }); return m; };
+  [-250, -120, 0, 130].forEach(y => { const w = ancho(y); D.add(ARC(0, y, w, w * .1, 0, Math.PI), 1.6); });
+  { const y1 = -40, y2 = 0, w = ancho(-20), pts = []; for (let i = 0; i <= 18; i++) { const x = -w + i * 2 * w / 18; pts.push([x, i % 2 ? y1 : y2]); } D.add(pts.map(([x, y]) => [x * (1 - Math.abs(x) / w * .05), y + Math.abs(x) / w * 8]), 1.3); }
+  D.add(ARC(0, 250, 92, 14, 0, TAU), 2).add(L_([-92, 250], [-72, 292]), 1.6).add(L_([92, 250], [72, 292]), 1.6).add(ARC(0, 292, 72, 11, 0, Math.PI), 1.8);
+  for (const x of [-60, -20, 20, 60]) D.add(L_([x * .9, 240], [x * 1.3, 252]), 1);
+  const nube = (cx, cy, s) => D.add([].concat(ARC(cx - 60 * s, cy, 40 * s, 30 * s, Math.PI * .5, Math.PI * 1.6), ARC(cx - 10 * s, cy - 22 * s, 48 * s, 40 * s, Math.PI * 1.1, Math.PI * 1.95), ARC(cx + 50 * s, cy - 4 * s, 38 * s, 30 * s, Math.PI * 1.4, Math.PI * 2.4)).concat(L_([cx + 58 * s, cy + 26 * s], [cx - 60 * s, cy + 30 * s])), 1.6);
+  nube(-560, -200, 1.2); nube(560, -60, 1); nube(-420, 140, .8);
+  D.add(L_([-900, 400], [900, 400]), 1.4);
+  const r = mulberry(8); for (let i = 0; i < 26; i++) { const x = 300 + i * 22 + r() * 8, h = 18 + r() * 10; D.add(ARC(x, 400 - h - 5, 5, 5, 0, TAU), 1).add(L_([x, 400 - h], [x, 400]), 1.1); }
+  return D;
+}
+// el Flyer de los Wright en perspectiva (proyección de puntos 3D)
+function proyectar([x, y, z], yaw = -1.0, pitch = .2, d = 1300) {
+  const cx = Math.cos(yaw), sx = Math.sin(yaw), x1 = x * cx - z * sx, z1 = x * sx + z * cx;
+  const cp = Math.cos(pitch), sp = Math.sin(pitch), y1 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
+  const f = d / (d + z2); return [x1 * f, y1 * f];
+}
+function flyer() {
+  const D = new Dibujo(44), L3 = (a, b, w = 1.8) => D.add(L_(proyectar(a), proyectar(b)), w);
+  const cuadro = (x0, x1, y, z0, z1, w = 2.2) => { L3([x0, y, z0], [x1, y, z0], w); L3([x1, y, z0], [x1, y, z1], w); L3([x1, y, z1], [x0, y, z1], w); L3([x0, y, z1], [x0, y, z0], w); };
+  cuadro(-330, 330, -80, 0, 108, 2.6); cuadro(-330, 330, 22, 0, 108, 2.6);
+  for (let x = -330; x <= 330; x += 82.5) { L3([x, -72, 0], [x, 22, 0]); L3([x, -72, 72], [x, 22, 72], 1.4); }
+  for (let x = -330; x < 330; x += 82.5) { L3([x, -72, 0], [x + 82.5, 22, 0], .9); L3([x + 82.5, -72, 0], [x, 22, 0], .9); }
+  for (let x = -250; x <= 250; x += 82.5) for (let z = 8; z < 72; z += 16) L3([x, -72, z], [x + 60, -72, z], .6);
+  cuadro(-95, 95, -40, -230, -192, 2); cuadro(-95, 95, -12, -230, -192, 2);
+  L3([-40, -40, -192], [-40, -12, -192], 1.2); L3([40, -40, -192], [40, -12, -192], 1.2);
+  L3([-70, 22, 0], [-60, -12, -200], 1.2); L3([70, 22, 0], [60, -12, -200], 1.2);
+  for (const x of [-26, 26]) { L3([x, -72, 262], [x, 22, 262]); L3([x, 22, 262], [x, 22, 300]); L3([x, 22, 300], [x, -72, 300]); L3([x, -72, 300], [x, -72, 262]); }
+  L3([-60, -72, 72], [-26, -72, 262], 1); L3([60, 22, 72], [26, 22, 262], 1); L3([60, -72, 72], [26, -72, 262], 1); L3([-60, 22, 72], [-26, 22, 262], 1);
+  L3([-40, 60, -240], [-40, 60, 120], 2); L3([40, 60, -240], [40, 60, 120], 2); L3([-40, 22, 20], [-40, 60, 20], 1.2); L3([40, 22, 20], [40, 60, 20], 1.2);
+  D.add(ARC(...proyectar([-10, 8, 30]), 9, 9, 0, TAU), 1.4); L3([-10, 14, 34], [40, 16, 60], 1.6);
+  D.add(muestrear(u => { const x = lerp(-900, 900, u); return [x, 240 + Math.sin(u * 5.2) * 22 + Math.sin(u * 13) * 6]; }, 120), 1.6);
+  L3([-10, 62, -420], [-10, 62, 380], 1.3);
+  return D;
+}
+// la escuadra: aviones repetidos en perspectiva que vienen hacia la cámara
+function avion(d, cx, cy, s, sem) {
+  const pts = (arr) => arr.map(([x, y]) => [cx + x * s, cy + y * s]);
+  d.add(pts([[-60, 0], [60, 0]]).length ? POLI(pts([[-62, 0], [58, -4], [66, 0], [58, 4], [-62, 0]])) : [], 1.6);
+  d.add(POLI(pts([[10, 0], [-14, -46], [-24, -46], [-8, 0], [-24, 46], [-14, 46], [10, 0]])), 1.4);
+  d.add(POLI(pts([[-50, 0], [-62, -18], [-66, -18], [-60, 0], [-66, 18], [-62, 18], [-50, 0]])), 1.2);
+}
+function escuadra() {
+  const D = new Dibujo(55), r = mulberry(9);
+  for (let fila = 5; fila >= 0; fila--) for (let col = -4; col <= 4; col++) {
+    const z = 1.25 + fila * .6, s = 3.1 / z, x = col * 560 / z + (fila % 2) * 140 / z, y = -380 + 520 / z + (r() - .5) * 8;
+    if (Math.abs(x) < 1000) avion(D, x, y, s, fila * 10 + col);
+  }
+  for (let i = 0; i < 26; i++) { const y = -300 + r() * 520, x = -900 + r() * 400; D.add(L_([x, y], [x + 200 + r() * 300, y]), .8); }
+  return D;
+}
+function saturno() {                                         // Saturno V (Apolo 11, 1969)
+  const D = new Dibujo(66), R = (y0, y1, a, b = a) => D.add(POLI([[-a, y0], [a, y0], [b, y1], [-b, y1]], true), 2);
+  R(140, 360, 44); R(-40, 140, 44); D.add(POLI([[-44, -40], [-31, -62], [31, -62], [44, -40]]), 1.8);
+  R(-220, -62, 31); R(-278, -220, 31); D.add(POLI([[-31, -278], [-9, -336], [9, -336], [31, -278]], true), 2);
+  D.add(L_([0, -336], [0, -430]), 1.6).add(L_([-7, -336], [-3, -410]), 1).add(L_([7, -336], [3, -410]), 1);
+  for (let y = -410; y < -340; y += 14) D.add(L_([-5, y], [5, y + 10]), .8);
+  for (const y of [180, 230, 290, 20, 80, -150, -110]) D.add(L_([-44 * (y > -62 ? 1 : .7), y], [44 * (y > -62 ? 1 : .7), y]), .9);
+  for (let i = 0; i < 4; i++) D.add(POLI([[-44 + i * 22, 150], [-33 + i * 22, 150], [-33 + i * 22, 175], [-44 + i * 22, 175]], true), .8);
+  for (const s of [-1, 1]) D.add(POLI([[s * 44, 300], [s * 78, 372], [s * 44, 360]]), 1.8);
+  for (const x of [-26, 0, 26]) D.add(POLI([[x - 8, 360], [x - 15, 398], [x + 15, 398], [x + 8, 360]]), 1.4);
+  D.add(L_([150, -300], [150, 420]), 1.6).add(L_([200, -300], [200, 420]), 1.6);
+  for (let y = -300; y < 420; y += 48) { D.add(L_([150, y], [200, y + 48]), .8).add(L_([200, y], [150, y + 48]), .8); }
+  for (const y of [-240, -120, 60]) D.add(L_([150, y], [48, y]), 1.2);
+  return D;
+}
+function luna() {
+  const D = new Dibujo(77); D.add(ARC(0, 0, 170, 170, 0, TAU), 2);
+  [[-60, -40, 30], [50, 20, 22], [-20, 70, 16], [70, -70, 12], [-90, 40, 10]].forEach(([x, y, r]) => D.add(ARC(x, y, r, r, 0, TAU), 1.2));
+  return D;
+}
+function webb() {                                            // James Webb: 18 espejos hexagonales
+  const D = new Dibujo(88), s = 64, centros = [];
+  for (let q = -2; q <= 2; q++) for (let r = -2; r <= 2; r++) { const d = Math.max(Math.abs(q), Math.abs(r), Math.abs(-q - r)); if (d >= 1 && d <= 2) centros.push([s * Math.sqrt(3) * (q + r / 2), s * 1.5 * r]); }
+  centros.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
+  centros.forEach(([x, y]) => D.add(POLI(Array.from({ length: 6 }, (_, i) => { const a = Math.PI / 6 + i * TAU / 6; return [x + Math.cos(a) * s * .96, y + Math.sin(a) * s * .96]; }), true), 2));
+  D.add(L_([-205, -110], [0, -420]), 1.4).add(L_([205, -110], [0, -420]), 1.4).add(L_([0, 245], [0, -420]), 1.2).add(ARC(0, -420, 16, 16, 0, TAU), 1.6);
+  for (let i = 0; i < 5; i++) D.add(POLI([[-540, 330 + i * 12], [0, 250 + i * 12], [540, 330 + i * 12], [0, 410 + i * 12]], true), 1.1, 'rgba(190,160,255,.8)');
+  return { D, centros, s };
+}
+
+// ───────────── fondos ─────────────
+let FONDO_PAPEL, FONDO_NOCHE, GRANO, ESTRELLAS;
+function preparar() {
+  const lienzo = (w, h, f) => { const c = document.createElement('canvas'); c.width = w; c.height = h; f(c.getContext('2d'), w, h); return c; };
+  FONDO_PAPEL = lienzo(W, H, (g) => {
+    g.fillStyle = PAPEL; g.fillRect(0, 0, W, H); const r = mulberry(3);
+    for (let i = 0; i < 26; i++) { const x = r() * W, y = r() * H, rr = 80 + r() * 260, gr = g.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, `rgba(150,110,60,${.04 + r() * .05})`); gr.addColorStop(1, 'rgba(150,110,60,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, H); }
+    for (let i = 0; i < 26000; i++) { const x = r() * W, y = r() * H, a = r() * TAU, l = 3 + r() * 10; g.strokeStyle = r() < .5 ? `rgba(255,255,255,${.05 + r() * .06})` : `rgba(90,60,30,${.03 + r() * .04})`; g.lineWidth = .7; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+    const v = g.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, H * .95); v.addColorStop(0, 'rgba(80,50,20,0)'); v.addColorStop(1, 'rgba(80,50,20,.45)'); g.fillStyle = v; g.fillRect(0, 0, W, H);
+  });
+  FONDO_NOCHE = lienzo(W, H, (g) => {
+    const gr = g.createRadialGradient(W * .6, H * .4, 50, W / 2, H / 2, W); gr.addColorStop(0, '#0d1428'); gr.addColorStop(1, NOCHE); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  });
+  const r = mulberry(12); ESTRELLAS = Array.from({ length: 420 }, () => [r() * W, r() * 6000 - 5200, r() * 1.8 + .3, r()]);
+  GRANO = [1, 2, 3].map(s => lienzo(512, 512, (g) => { const d = g.createImageData(512, 512), q = mulberry(s * 91); for (let i = 0; i < d.data.length; i += 4) { const v = 128 + (q() - .5) * 90; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; } g.putImageData(d, 0, 0); }));
+}
+
+// ───────────── escenas ─────────────
+const ESC = [
+  { p: 0, kicker: 'MITO GRIEGO · ÍCARO', titulo: 'PRIMERO LO *SOÑAMOS*' },
+  { p: 12, kicker: 'c. 1490 · LEONARDO DA VINCI', titulo: 'LUEGO LO *DIBUJAMOS*' },
+  { p: 24, kicker: '1783 · HERMANOS MONTGOLFIER', titulo: 'Y NOS *ELEVAMOS*' },
+  { p: 36, kicker: '1903 · HERMANOS WRIGHT, KITTY HAWK', titulo: 'DOCE SEGUNDOS EN EL *AIRE*' },
+  { p: 48, kicker: 'SIGLO XX', titulo: 'Y EL CIELO SE *LLENÓ*' },
+  { p: 60, kicker: '1969 · APOLO 11', titulo: 'HASTA LA *LUNA*', noche: true },
+  { p: 72, kicker: '2021 · TELESCOPIO ESPACIAL JAMES WEBB', titulo: 'MÁS LEJOS QUE *NUNCA*', noche: true },
+  { p: 84, kicker: '', titulo: '', noche: true },
+];
+const PASO = 2300;                                           // distancia entre dibujos en el papel
+let D1, DG, D2, D3, D4, D5, D6, DL, WB;
+
+function camaraPapel(t) {                                    // la cámara recorre el papel de dibujo en dibujo
+  let x = 0; for (let i = 1; i < 5; i++) x += PASO * suave(seg(t, T(12 * i - 1.6), T(12 * i + .2)));
+  return x;
+}
+function mundoPapel(t, final = false) {
+  const cx = final ? 0 : camaraPapel(t);
+  ctx.drawImage(FONDO_PAPEL, 0, 0);
+  ctx.save(); ctx.translate(W / 2, 480); ctx.scale(.88, .88); ctx.translate(-cx, 0);
+  // cada dibujo empieza a trazarse mientras llega la cámara (antes arrancaba casi un segundo después: papel vacío)
+  const k = (i, a = -.6, b = 8.5) => final ? (i === 0 ? 1 : 0) : seg(t, T(12 * i + a), T(12 * i + b));
+  const pluma = (p) => { if (!p) return; ctx.fillStyle = TINTA; ctx.beginPath(); ctx.arc(p[0], p[1], 3.2, 0, TAU); ctx.fill(); };
+  // 1 Ícaro (en el final, completo: el último cuadro repite el primero)
+  ctx.save(); pluma(trazar(D1, final ? 1 : seg(t, T(.6), T(9)), { color: TINTA, grosor: 1.5 })); trazar(DG, final ? 1 : seg(t, T(3), T(10)), { grosor: 1.3 }); ctx.restore();
+  // 2 Leonardo
+  ctx.save(); ctx.translate(PASO, 0); pluma(trazar(D2, k(1), { color: '#3b2412', grosor: 1.5 })); ctx.restore();
+  // 3 el globo sube despacio cuando termina de dibujarse
+  ctx.save(); ctx.translate(PASO * 2, lerp(40, -60, suave(seg(t, T(24 + 7), T(36))))); pluma(trazar(D3, k(2), { grosor: 1.5 })); ctx.restore();
+  // 4 el Flyer despega: se separa del suelo con líneas de velocidad
+  const despega = suave(seg(t, T(36 + 7.5), T(48)));
+  ctx.save(); ctx.translate(PASO * 3, 0);
+  ctx.save(); ctx.translate(despega * 60, -despega * 150); ctx.scale(1.65, 1.65); pluma(trazar(D4, k(3), { grosor: 1.1 }));
+  if (despega > 0) { ctx.strokeStyle = TINTA; ctx.lineWidth = 1.2; for (let i = 0; i < 9; i++) { const y = -120 + i * 34, l = 120 + (i % 3) * 80; ctx.beginPath(); ctx.moveTo(-420 - despega * 200 - l, y); ctx.lineTo(-420 - despega * 200, y); ctx.stroke(); } }
+  ctx.restore(); ctx.restore();
+  // 5 la escuadra: todo avanza hacia la cámara
+  const vuela = seg(t, T(48 + 2), T(60));
+  ctx.save(); ctx.translate(PASO * 4, 0); ctx.scale(1 + vuela * .35, 1 + vuela * .35); pluma(trazar(D5, k(4, -1.2, 8), { grosor: 1.4 })); ctx.restore();
+  ctx.restore();
+  // grano de papel
+  ctx.save(); ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = .07; ctx.fillStyle = ctx.createPattern(GRANO[Math.floor(Math.max(0, t) * 12) % 3], 'repeat'); ctx.fillRect(0, 0, W, H); ctx.restore();
+}
+
+function camaraNoche(t) {                                    // sube con el cohete, al telescopio y a las estrellas
+  const sube = Math.pow(seg(t, T(66), T(72)), 2);
+  return -sube * 900 - 1500 * suave(seg(t, T(71), T(73.5))) - 2400 * suave(seg(t, T(83), T(85.5)));
+}
+function mundoNoche(t) {
+  const cy = camaraNoche(t);
+  ctx.drawImage(FONDO_NOCHE, 0, 0);
+  // estrellas con parallax suave
+  for (const [x, y, r, f] of ESTRELLAS) { const yy = y - cy * .35 + 540; if (yy < -5 || yy > H + 5) continue; ctx.fillStyle = `rgba(220,235,255,${.35 + .5 * Math.abs(Math.sin(t * 1.3 + f * 20))})`; ctx.beginPath(); ctx.arc(x, yy, r, 0, TAU); ctx.fill(); }
+  ctx.save(); ctx.translate(W / 2, 540 - cy);
+  // 6 el Saturno V: se dibuja en luz, enciende y despega
+  const sube = Math.pow(seg(t, T(66), T(72)), 2) * 900;
+  ctx.save(); ctx.translate(-120, -sube);
+  const fuego = seg(t, T(65), T(66));
+  if (fuego > 0) {
+    const r = mulberry(Math.floor(t * 24));
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 90; i++) { const e = r(), x = (r() - .5) * 60 * (1 + e * 3), y = 400 + e * 320 * fuego; ctx.fillStyle = `rgba(255,${Math.round(120 + 110 * (1 - e))},40,${(1 - e) * .5})`; ctx.beginPath(); ctx.arc(x, y, 6 + e * 26, 0, TAU); ctx.fill(); }
+    ctx.restore();
+    ctx.fillStyle = 'rgba(160,170,190,.18)'; for (let i = 0; i < 14; i++) { const a = i / 14 * TAU; ctx.beginPath(); ctx.arc(Math.cos(a) * (140 + fuego * 160) , 470 + Math.sin(a) * 30 + sube * .9, 60 + i % 3 * 20, 0, TAU); ctx.fill(); }
+  }
+  const pl = trazar(D6, seg(t, T(60.2), T(64.2)), { color: LUZ, brillo: 14, grosor: 1.1 });
+  if (pl) { ctx.fillStyle = '#fff'; ctx.shadowColor = LUZ; ctx.shadowBlur = 20; ctx.beginPath(); ctx.arc(pl[0], pl[1], 4, 0, TAU); ctx.fill(); ctx.shadowBlur = 0; }
+  ctx.restore();
+  // la Luna arriba, a donde va el cohete
+  ctx.save(); ctx.translate(520, -1150); trazar(DL, seg(t, T(68), T(71.5)), { color: LUZ, brillo: 10 }); ctx.restore();
+  // 7 el James Webb: se dibuja y sus espejos se encienden en oro uno por uno
+  ctx.save(); ctx.translate(0, -2400 - 70); ctx.scale(.86, .86);
+  trazar(WB.D, seg(t, T(73), T(78.5)), { color: ORO, brillo: 12 });
+  WB.centros.forEach(([x, y], i) => {
+    const k = seg(t, T(75 + i * .22), T(75.8 + i * .22)); if (k <= 0) return;
+    ctx.save(); ctx.globalAlpha = k * (.55 + .15 * Math.sin(t * 2 + i)); ctx.fillStyle = ORO; ctx.shadowColor = ORO; ctx.shadowBlur = 30 * k;
+    ctx.beginPath(); for (let j = 0; j < 6; j++) { const a = Math.PI / 6 + j * TAU / 6; ctx[j ? 'lineTo' : 'moveTo'](x + Math.cos(a) * WB.s * .9 * k, y + Math.sin(a) * WB.s * .9 * k); } ctx.closePath(); ctx.fill(); ctx.restore();
+  });
+  ctx.restore();
+  // 8 la constelación: las estrellas dibujan otra vez a Ícaro
+  ctx.save(); ctx.translate(0, -4800 - 60); ctx.scale(.88, .88);
+  const kc = seg(t, T(85), T(89.5));
+  if (kc > 0) {
+    trazar(D1, kc, { color: 'rgba(242,193,78,.55)', brillo: 8, grosor: .55 });
+    const tope = kc * D1.total(); let hecho = 0;
+    for (const s of D1.t) { for (let i = 0; i < s.p.length; i += 7) { if (hecho + s.cum[i] > tope) break; const [x, y] = s.p[i]; ctx.fillStyle = '#fff6dc'; ctx.beginPath(); ctx.arc(x, y, 1.8 + ((i * 7) % 5) * .35, 0, TAU); ctx.fill(); } hecho += s.len; if (hecho > tope) break; }
+  }
+  ctx.restore();
+  ctx.restore();
+}
+
+// ───────────── transiciones ─────────────
+function manchaTinta(k, color, cx = W / 2, cy = H, invertida = false) {  // una mancha que se expande (o se abre)
+  if (k <= 0) return;
+  const r = k * 1500, puntos = 80;
+  ctx.save(); ctx.beginPath();
+  if (invertida) ctx.rect(0, 0, W, H);
+  for (let i = 0; i <= puntos; i++) { const a = i / puntos * TAU, rr = r * (1 + .08 * Math.sin(a * 5 + 1) + .05 * Math.sin(a * 11 + 3)); const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+  ctx.closePath(); ctx.fillStyle = color; ctx.fill(invertida ? 'evenodd' : 'nonzero'); ctx.restore();
+}
+
+// ───────────── titulares ─────────────
+function titular(t, e, final = false) {
+  const t0 = final ? T(90.6) : T(e.p === 0 ? 7.4 : e.p + 1.2), t1 = final ? DUR + 1 : T(e.p + 11.6);
+  if (t < t0 || t > t1 + .3) return;
+  const noche = e.noche && !final, acento = noche ? ORO : ROJO, tinta = noche ? '#eef4ff' : TINTA;
+  ctx.save();
+  // sale como entró: las palabras bajan detrás de la máscara y el kicker se borra letra a letra (sin fundido)
+  const baja = (i) => suave(seg(t, t1 - .45 + i * .05, t1 - .1 + i * .05));
+  if (e.kicker) {
+    const kk = seg(t, t0, t0 + .5) * (1 - seg(t, t1 - .45, t1 - .15)), txt = e.kicker.slice(0, Math.floor(e.kicker.length * kk));
+    ctx.font = `600 26px ${MONO}`; ctx.fillStyle = noche ? 'rgba(220,235,255,.8)' : 'rgba(43,29,16,.8)'; ctx.fillText(txt, 130, 860);
+    ctx.fillRect(130, 876, 60 * salida(kk), 3);
+  }
+  ctx.font = `700 ${final ? 82 : 92}px ${SERIF}`; ctx.textBaseline = 'alphabetic';
+  let x = 130; const y = 970;
+  e.titulo.split(' ').forEach((p, i) => {
+    const k = salida(seg(t, t0 + .25 + i * .09, t0 + .75 + i * .09)), s = p.replace(/\*/g, '');
+    ctx.save(); ctx.beginPath(); ctx.rect(0, y - 92, W, 118); ctx.clip();
+    ctx.fillStyle = p.includes('*') ? acento : tinta; if (noche) { ctx.shadowColor = p.includes('*') ? ORO : LUZ; ctx.shadowBlur = 18; }
+    ctx.fillText(s, x, y + (1 - k) * 110 + baja(i) * 120); ctx.restore(); x += ctx.measureText(s + ' ').width;
+  });
+  ctx.restore();
+}
+function portada(t) {                                        // título del principio y del final
+  const k = seg(t, T(.4), T(2)), sal = seg(t, T(6.5), T(7.3)); if (k <= 0 || sal >= 1) return;
+  ctx.save(); ctx.globalAlpha = 1 - sal; ctx.textAlign = 'center';
+  ctx.font = `600 28px ${MONO}`; ctx.fillStyle = 'rgba(43,29,16,.75)'; ctx.fillText('UNA ÉPICA EN DIBUJO LINEAL', W / 2, 800);
+  ctx.font = `700 120px ${SERIF}`; ctx.fillStyle = TINTA;
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 830, W, 150); ctx.clip();
+  const y = 950 + (1 - salida(k)) * 140; ctx.fillText('LA HISTORIA DEL ', W / 2 - 120, y); ctx.fillStyle = ROJO; ctx.textAlign = 'left'; ctx.fillText('VUELO', W / 2 + ctx.measureText('LA HISTORIA DEL ').width / 2 - 120, y);
+  ctx.restore(); ctx.restore();
+}
+
+// ───────────── el cuadro ─────────────
+function render(t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  const e = [...ESC].reverse().find(s => t >= T(s.p)) || ESC[0];   // el desenfoque pide instantes apenas negativos
+  if (t < T(60.25)) mundoPapel(t); else mundoNoche(t);
+  // la tinta inunda el papel y el espacio sale de ella (p59.4–60.25)
+  if (t < T(60.25)) manchaTinta(salida(seg(t, T(59.4), T(60.25))), ctx.createPattern(FONDO_NOCHE, "no-repeat"), W / 2, H * 1.05);   // la tinta ya es el fondo del espacio: sin salto
+  // el final: la noche se abre en un círculo de papel y vuelve Ícaro (el último cuadro repite el primero)
+  if (t >= T(89.6)) {
+    const k = suave(seg(t, T(89.6), T(91.3)));                // se abre en ~1 s, sin arranque brusco (el detector marcaba un tirón)
+    ctx.save(); ctx.beginPath(); ctx.arc(W / 2, H / 2, k * 1300, 0, TAU); ctx.clip(); mundoPapel(t, true); ctx.restore();
+  }
+  if (t < T(84)) titular(t, e);
+  else if (t >= T(90)) titular(t, { titulo: 'Y SEGUIMOS *SOÑANDO* CON VOLAR', kicker: 'LA HISTORIA DEL VUELO' }, true);
+  portada(t);
+}
+
+preparar();
+D1 = icaro(); DG = greca(); D2 = leonardo(); D3 = globo(); D4 = flyer(); D5 = escuadra(); D6 = saturno(); DL = luna(); WB = webb();
+document.fonts.ready.then(() => Reproductor.iniciar({ canvas: out, render, duracion: DUR, audio: 'mezcla.wav', desenfoque: 2 }));
+</script>
+</body>
+</html>
