@@ -1,0 +1,26 @@
+{
+  "nota": "Cuento original del proyecto (ejemplo neutro de la técnica 5 para el repo público): sin obras de terceros.",
+  "voz": "supertonic:M5",
+  "velocidad": 1.0,
+  "pausa": 0.6,
+  "personajes": {
+    "narrador": {"voz": "supertonic:M5"},
+    "lia": {"voz": "supertonic:F2", "tono": 2},
+    "abuelo": {"voz": "supertonic:M1", "tono": -1}
+  },
+  "segmentos": [
+    {"id": "titulo", "quien": "narrador", "texto": "El faro.", "pausa": 1.6},
+    {"id": "noche", "quien": "narrador", "texto": "En la punta de la isla había un faro viejo. Cada noche su luz daba vueltas sobre el mar, y los barcos sabían por dónde volver a casa.", "pausa": 1.0},
+    {"id": "niebla", "quien": "narrador", "texto": "Una noche llegó la niebla, espesa como leche. Y de pronto, la luz del faro dejó de girar.", "pausa": 1.0},
+    {"id": "lia1", "quien": "lia", "texto": "¡Abuelo! ¡La luz se quedó quieta!", "pausa": 0.5},
+    {"id": "abuelo1", "quien": "abuelo", "texto": "Se rompió el motor. Si no gira, desde el mar no la reconocen. Y el bote de tu tío todavía está afuera.", "pausa": 0.9},
+    {"id": "subir", "quien": "narrador", "texto": "Subieron los ciento veinte escalones con una linterna. Arriba, la lámpara seguía encendida, pero quieta, mirando siempre hacia el mismo lado.", "pausa": 0.8},
+    {"id": "lia2", "quien": "lia", "texto": "¿Y si la giramos nosotros?", "pausa": 0.7},
+    {"id": "girar", "quien": "narrador", "texto": "El abuelo empujó la manivela. Lía empujó con él. Despacio, muy despacio, la luz volvió a dar vueltas.", "pausa": 1.0},
+    {"id": "barco", "quien": "narrador", "texto": "Allá lejos, entre la niebla, se encendió una lucecita. El bote había visto el faro, y venía hacia la costa.", "pausa": 0.8},
+    {"id": "abuelo2", "quien": "abuelo", "texto": "Vuelta tras vuelta. No pares.", "pausa": 0.9},
+    {"id": "llega", "quien": "narrador", "texto": "Giraron toda la noche. Cuando salió el sol, el bote ya estaba en el muelle.", "pausa": 0.8},
+    {"id": "lia3", "quien": "lia", "texto": "Abuelo... ¿mañana también?", "pausa": 0.9},
+    {"id": "cierre", "quien": "narrador", "texto": "Desde esa noche, Lía sube al faro todas las tardes. Por si acaso.", "pausa": 2.5}
+  ]
+}

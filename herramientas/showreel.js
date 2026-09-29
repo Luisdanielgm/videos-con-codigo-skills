@@ -79,7 +79,7 @@ window.Showreel = (() => {
       }
       ctx.strokeStyle = C.acento; ctx.lineWidth = 6; ctx.lineCap = 'round';
       for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) { const d = (i ^ j); if (d === 1 || d === 2 || d === 4) { ctx.beginPath(); ctx.moveTo(...V[i]); ctx.lineTo(...V[j]); ctx.stroke(); } }
-      const tq = Math.round(t * 30) / 30, kk = tramo(tq, T(12.2), T(14.2), 'expo'), acerca = escalon(t - T(12.1), 1.6, .8);
+      const tq = Reproductor.cuadro(t), kk = tramo(tq, T(12.2), T(14.2), 'expo'), acerca = escalon(t - T(12.1), 1.6, .8);
       const valor = Math.round(cfg.numero.valor * kk).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
       ctx.save(); ctx.translate(W / 2, H / 2 - 120); ctx.scale(.2 + .8 * acerca, .2 + .8 * acerca);
       tx(valor, 0, 0, ajustar(cfg.numero.valor.toLocaleString('es'), 900, W - 260, 230), 900, C.texto); ctx.restore();
@@ -146,7 +146,7 @@ window.Showreel = (() => {
     function logo(u, t) {
       fondo(C.fondo);
       if (!tintes && LOGO.complete) tintes = [tintar('#ff2a4f'), tintar('#28e0ff')];
-      const d = t - T(24), k = escalon(d, 1.8, .66), g = Math.max(0, 1 - d / .55) * (d > 0), f = Math.round(t * 30);
+      const d = t - T(24), k = escalon(d, 1.8, .66), g = Math.max(0, 1 - d / .55) * (d > 0), f = Math.round(Reproductor.cuadro(t) * 30);
       const asp = LOGO.naturalHeight / LOGO.naturalWidth || 1, ancho_ = Math.min(W - 160, 820, 480 / asp), alto = ancho_ * asp, x = W / 2 - ancho_ / 2 * (.8 + .2 * k), y = H / 2 - 260 - alto / 2 * (.8 + .2 * k);
       const w = ancho_ * (.8 + .2 * k), h = alto * (.8 + .2 * k);
       if (g > 0 && tintes) {

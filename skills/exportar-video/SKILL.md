@@ -69,6 +69,16 @@ Deja `render/<tecnica>_<video>.mp4` (H.264, con `mezcla.wav` o, si no hay, `narr
 no se guardan en disco. El límite de espera es 1 hora; una sola exportación a la vez (el servidor lleva
 una), pero se pueden sacar capturas mientras exporta.
 
+**Versión liviana para compartir por teléfono** (sin recortar, mismo 1920×1080, a 30 fps; ~45 % del peso):
+
+```
+ffmpeg -i render/<video>.mp4 -vf fps=30 -c:v libx264 -preset slow -crf 26 -tune stillimage -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart render/<video>_telefono.mp4
+```
+
+No usar HandBrake con su preajuste tal cual: su **recorte automático** toma el fondo oscuro de los explicativos
+por franjas negras y corta los bordes (un explicativo quedó en 1590×832 y en el teléfono se veía recortado). Si
+se usa HandBrake: Dimensiones → Recorte → Ninguno, y comprobar que el tamaño diga 1920×1080.
+
 `VIDEOS_PARAMS` pasa parámetros a la página: `fps` (cuadros por segundo), `sub` (subcuadros de desenfoque
 mezclados por cuadro) y los propios del video (p. ej. `palabra=luz` en la técnica 20).
 

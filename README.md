@@ -31,7 +31,7 @@ requirements.txt            el entorno de Python principal
 | 2 | 3D en el navegador con three.js | `video-threejs` | `02-threejs/red-neuronal/` |
 | 3 | Diagrama que calcula de verdad lo que muestra | `video-calculo-real` | `03-calculo-real/red-neuronal/` |
 | 4 | Explicativo en Python: pizarra con cairo o diagramas con Manim | `video-pizarra` | `04-explicativo-narrado/red-neuronal/` (pizarra) |
-| 5 | Todo el cuadro en un shader de WebGL2 | `video-shader` | — |
+| 5 | Todo el cuadro en un shader de WebGL2 | `video-shader` | `05-shader-webgl2/el-faro/` (cuento original) |
 | 6 | Render real en Blender por script + captura de movimiento | `video-blender` | — (sí las herramientas) |
 | 7 | Acabado risográfico sobre un video hecho | `acabado-riso` | — |
 | 8 | Comercial: una sola forma que se vuelve cada pantalla | `video-forma-unica` | — |

@@ -73,7 +73,8 @@ llene el cuadro. Si se puede, el último cuadro igual al primero (bucle).
 - Texto resaltado (una @mención) se dibuja por partes, no encima: quedaba impreso dos veces.
 - Medir el texto de botones con `measureText` y dejar margen (el texto de un botón se salía de la caja).
 - Texto que cambia dentro de una forma que se transforma necesita su propia entrada y salida, o se encima.
-- Contadores con `t` redondeado al cuadro (`Math.round(t*30)/30`): con desenfoque salían dobles.
+- Contadores con `Reproductor.cuadro(t)` (el instante del cuadro, igual en sus subcuadros): con desenfoque
+  salían dobles, y redondear a 1/30 no alcanza a 60 fps.
 - Rebotes mínimos (amortiguación ≥ 0,6); sin destellos ni degradados en la interfaz.
 - La primera versión no era una sola forma (tarjetas que entraban por opacidad): se rehízo con la receta.
 

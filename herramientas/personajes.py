@@ -133,7 +133,10 @@ def bases(esq, R, P):
     if Q: R, P = repartir_cuello(R, P)
     for b in esq.data.bones:
         Rb = BR(R[b.name])
-        if Q: Rb = Rb @ BR(np.array(Q[b.name])).transposed()
+        # la cabeza no: su Q sale del eje cuello→coronilla, que en una cabeza de dibujo grande está inclinado
+        # 15–17° contra el de la captura; con él, la cara quedaba mirando para arriba (medido). Sin Q, la
+        # cara apunta a donde la pone la captura o `mirar`, como en el reposo de la malla
+        if Q and b.name != "Head": Rb = Rb @ BR(np.array(Q[b.name])).transposed()
         W = Matrix.Translation(B(P[b.name])) @ Rb.to_4x4()
         D[b.name] = W @ Matrix.Translation(-b.head_local)
     out = {}

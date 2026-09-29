@@ -11,6 +11,9 @@
  *     antes    : async antes(t) (opcional): se espera antes de dibujar cada cuadro al exportar o capturar,
  *                p. ej. para llevar un <video> al cuadro exacto y esperar `seeked` (técnica 17).
  *
+ *   Reproductor.cuadro(t)  el instante del cuadro que se dibuja (igual en todos sus subcuadros): usarlo para
+ *     cifras que cuentan y azares por cuadro, nunca Math.round(t * 30) / 30.
+ *
  *   Reproductor.subtitulos(ctx, t, TIEMPOS, colores)  dibuja la frase narrada en el instante t.
  *     colores (opcional): color del texto por personaje, p. ej. { visitante: '#ffd98a' } (usa `quien` de tiempos.js).
  *
@@ -82,15 +85,17 @@ window.Reproductor = (() => {
   }
 
   // Promedia `sub` subcuadros repartidos en medio cuadro (obturador de 180°): desenfoque de movimiento.
-  let acumulado = null;
+  let acumulado = null, enCuadro = null;
   function dibujarCuadro(canvas, render, t, sub) {
     if (sub <= 1) { render(t); return; }
     if (!acumulado) { acumulado = document.createElement('canvas'); acumulado.width = canvas.width; acumulado.height = canvas.height; }
     const a = acumulado.getContext('2d');
+    enCuadro = t;
     for (let k = 0; k < sub; k++) {
       render(t + (k / sub - .25) * (.5 / FPS));
       a.globalAlpha = 1 / (k + 1); a.drawImage(canvas, 0, 0);     // promedio acumulado
     }
+    enCuadro = null;
     a.globalAlpha = 1;
     const c = canvas.getContext('2d'); c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.drawImage(acumulado, 0, 0); c.restore();
   }
@@ -222,5 +227,10 @@ window.Reproductor = (() => {
     return { clamp, lerp, seg, ease, A, D, F, P, SIG, vis };
   }
 
-  return { iniciar, subtitulos, ayudantes };
+  // Instante del CUADRO que se está dibujando (el mismo en todos sus subcuadros). Para lo que no puede cambiar a
+  // mitad de cuadro: una cifra que cuenta, un azar por cuadro. Redondear t a 1/30 no alcanza: a 60 fps los
+  // subcuadros de los cuadros impares caen a los dos lados del redondeo y la cifra sale doble.
+  const cuadro = t => enCuadro ?? Math.round(t * FPS) / FPS;
+
+  return { iniciar, subtitulos, ayudantes, cuadro, dibujarCuadro };
 })();

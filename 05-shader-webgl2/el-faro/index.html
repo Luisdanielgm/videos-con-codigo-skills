@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>El faro (shader)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas#c { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="tiempos.js"></script>
+<script src="../../herramientas/reproductor.js"></script>
+<script>
+// Técnica 5: un cuento entero en UN shader de WebGL2, sin librerías ni imágenes. Cada píxel se calcula en la GPU:
+// cielo (atardecer, noche, alba), mar con reflejos, niebla que se mueve, el faro y su haz, el bote y dos personajes
+// hechos de cápsulas con sus colores. JavaScript sólo decide, para cada instante, la cámara, el giro de la luz y
+// las poses, y se las pasa al shader. «El faro» es un cuento original del proyecto (ejemplo neutro).
+const TI = window.TIEMPOS, DUR = TI.total;
+const { clamp, lerp, seg, ease, A, D, F, P, SIG } = Reproductor.ayudantes(TI);
+const W = 1920, H = 1080;
+const out = document.getElementById('c');
+const ctx = out.getContext('2d');
+
+// ───────────── el mundo (coordenadas fijas, y hacia abajo; el horizonte en y = 560) ─────────────
+const HY = 560;
+const FARO = { x: 300, base: 520, galeria: 128, lampara: [300, 98] };
+const PISO = FARO.galeria;                          // piso del cuarto de la lámpara
+const POS = { lia: 268, abuelo: 334, liaFuera: 238 };
+const MUELLE = [1000, 850];
+
+// ───────────── cámara (claves [t, x, y, zoom]; dos claves juntas = corte) ─────────────
+let KEYS = null;
+function claves() {
+  const k = [];
+  const add = (t, x, y, z) => k.push([t, x, y, z]);
+  const corte = (t, x, y, z) => { add(t - .001, ...k[k.length - 1].slice(1)); add(t, x, y, z); };
+  add(0, 700, 330, .78);
+  add(A('noche'), 690, 330, .8);
+  add(SIG('noche'), 430, 290, 1.15);
+  corte(A('niebla') - .2, 820, 400, .82);
+  add(SIG('niebla'), 760, 380, .86);
+  corte(A('lia1') - .2, 300, 494, 6.4);
+  add(SIG('lia1'), 298, 494, 6.6);
+  add(F('abuelo1', .3), 314, 490, 7.2);
+  add(SIG('abuelo1'), 314, 490, 7.4);
+  corte(A('subir') - .15, 300, 430, 2.3);
+  add(F('subir', .1), 300, 430, 2.3);
+  add(F('subir', .75), 300, 170, 2.3);
+  corte(F('subir', .8), 300, 100, 5.2);
+  add(SIG('subir'), 300, 100, 5.6);
+  add(SIG('lia2'), 300, 100, 6.4);
+  add(F('girar', .55), 300, 100, 6.2);
+  add(SIG('girar'), 420, 190, 2.4);
+  corte(A('barco') - .1, 1300, 470, .8);
+  add(SIG('barco'), 1220, 490, .86);
+  corte(A('abuelo2') - .15, 306, 100, 6.6);
+  add(SIG('abuelo2'), 306, 100, 7);
+  corte(A('llega') - .15, 760, 470, .78);
+  add(SIG('llega'), 820, 520, .92);
+  corte(A('lia3') - .15, 300, 100, 6.6);
+  add(SIG('lia3'), 300, 100, 7.2);
+  corte(A('cierre') - .15, 330, 170, 2.6);
+  add(DUR, 560, 330, 1.05);
+  return k;
+}
+function camara(t) {
+  KEYS = KEYS || claves();
+  let c = { x: KEYS[0][1], y: KEYS[0][2], z: KEYS[0][3] };
+  for (let i = 0; i < KEYS.length - 1; i++) {
+    const a = KEYS[i], b = KEYS[i + 1];
+    if (t >= a[0] && t < b[0]) { const k = ease(seg(t, a[0], b[0])); c = { x: lerp(a[1], b[1], k), y: lerp(a[2], b[2], k), z: Math.exp(lerp(Math.log(a[3]), Math.log(b[3]), k)) }; break; }
+    if (i === KEYS.length - 2 && t >= b[0]) c = { x: b[1], y: b[2], z: b[3] };
+  }
+  return c;
+}
+
+// ───────────── la historia en el instante t ─────────────
+// velocidad de giro de la luz (rad/s): el motor, se rompe, la giran a mano, al día siguiente el motor otra vez
+function omega(t) {
+  const para = F('niebla', .72);
+  if (t < para) return 1.1;
+  if (t < para + 1) return 1.1 * (1 - seg(t, para, para + 1));
+  const mano = F('girar', .32);
+  if (t < mano) return 0;
+  if (t < A('cierre') - .2) return .75 * ease(seg(t, mano, mano + 3.5));
+  return 1.1;
+}
+const PASO = 1 / 120, GIRO = [0];
+for (let i = 1; i * PASO <= DUR + 1; i++) GIRO.push(GIRO[i - 1] + omega((i - .5) * PASO) * PASO);
+// quieta, la luz apunta al mar (a la derecha, un poco hacia la cámara): el ángulo del motor se corre para que pare ahí
+const QUIETA = .3 - GIRO[Math.round((F('niebla', .72) + 1) / PASO)];
+const giro = t => { const i = clamp(t / PASO, 0, GIRO.length - 1), a = Math.floor(i); return lerp(GIRO[a], GIRO[Math.min(a + 1, GIRO.length - 1)], i - a) + QUIETA; };
+
+const niebla = t => clamp(seg(t, A('niebla'), F('niebla', .6)) * .85 - seg(t, A('llega'), SIG('llega')) * .6 - seg(t, A('cierre') - .3, A('cierre')) * .25);
+const noche = t => t < A('llega') ? lerp(.15, 1, ease(seg(t, 1, A('niebla') + 2))) : t < A('cierre') - .2 ? 1 - seg(t, A('llega'), F('llega', .8)) : .45;
+const alba = t => t >= A('cierre') - .2 ? 0 : ease(seg(t, A('llega'), F('llega', .8)));
+function bote(t) {                                 // posición del bote (y su farol) en el mar
+  const a = F('barco', .15);
+  if (t < a) return null;
+  if (t < A('llega')) { const k = seg(t, a, A('llega')); return { x: lerp(2500, 1500, k), y: lerp(600, 690, k), luz: seg(t, a, a + 1.2) }; }
+  const k = ease(seg(t, A('llega'), F('llega', .85)));
+  if (t < A('cierre') - .2) return { x: lerp(1500, MUELLE[0] + 40, k), y: lerp(690, MUELLE[1] - 6, k), luz: 1 - k * .7 };
+  return { x: MUELLE[0] + 40, y: MUELLE[1] - 6, luz: 0 };
+}
+function boca(t, quien) {
+  for (const id of TI.orden) {
+    const s = TI.seg[id];
+    if (s.quien === quien && t >= s.inicio && t <= s.inicio + s.dur) { const u = t - s.inicio; return Math.max(0, Math.sin(u * 17) * .6 + Math.sin(u * 7.3) * .4) * (u < s.dur - .1 ? 1 : 0); }
+  }
+  return 0;
+}
+// dónde está cada uno: 'abajo' (en la puerta), 'sube' (no se ven), 'arriba' (en el cuarto de la lámpara), 'galeria' (Lía sola, al final)
+function lugar(t) {
+  if (t < A('lia1') - .2) return 'nadie';
+  if (t < A('subir') - .15) return 'abajo';
+  if (t < F('subir', .8)) return 'sube';
+  if (t < A('barco') - .1) return 'arriba';
+  if (t < A('abuelo2') - .15) return 'nadie';
+  if (t < A('llega') - .15) return 'arriba';
+  if (t < A('lia3') - .15) return 'nadie';
+  if (t < A('cierre') - .15) return 'arriba';
+  return 'galeria';
+}
+
+// ───────────── personajes: listas de cápsulas que el shader rellena ─────────────
+const MAXC = 44;
+const capA = new Float32Array(MAXC * 4), capR = new Float32Array(MAXC * 3);
+let nCap = 0;
+// material: 0 piel, 1 pelo, 2 abrigo, 3 pantalón, 4 botas, 5 barba o gorra
+function cap(ax, ay, bx, by, r, quien, mat = 0) {
+  if (nCap >= MAXC) return;
+  capA.set([ax, ay, bx, by], nCap * 4); capR.set([r, quien, mat], nCap * 3); nCap++;
+}
+// Una persona de pie con los pies en (x, y). Devuelve ojos y boca (mundo).
+function persona(x, y, s, o, quien) {
+  const t = o.t, pose = o.pose, abuelo = quien === 1;
+  const T = (lx, ly) => [x + lx * s, y + ly * s];
+  const C = (a, b, r, m = 0) => { const p = T(...a), q = T(...b); cap(p[0], p[1], q[0], q[1], r * s, quien, m); };
+  const inclina = pose === 'empuja' ? (abuelo ? -1 : 1) * 3 : 0;          // el cuerpo se va hacia la lámpara
+  const paso = pose === 'camina' ? Math.sin(t * 8) : 0;
+  for (const [lx, a] of [[-4.5, paso * .4], [4.5, -paso * .4]]) {          // piernas y botas
+    const kx = lx + Math.sin(a) * 20;
+    C([lx + inclina * .3, -20], [kx, -2], 4.2, 3); C([kx, -2], [kx + 2, 0], 4, 4);
+  }
+  const hombro = [inclina, abuelo ? -46 : -40];
+  C([inclina * .5, -22], hombro, abuelo ? 10.5 : 9, 2);                    // abrigo
+  if (abuelo) C([-8 + inclina * .5, -14], [8 + inclina * .5, -14], 5, 2);   // el abrigo largo, abajo más ancho
+  // brazos: sueltos, o hacia la manivela (empuja), con un vaivén al ritmo del giro
+  for (const lado of [-1, 1]) {
+    let a = .12 * lado;
+    if (pose === 'empuja' && lado === (abuelo ? -1 : 1)) a = lado * (1.35 + .12 * Math.sin(o.giro * 2));
+    if (pose === 'empuja' && lado !== (abuelo ? -1 : 1)) a = lado * .5;
+    if (o.linterna && lado === 1) a = .7;
+    const hx = hombro[0] + lado * (abuelo ? 9 : 8), hy = hombro[1] + 3;
+    const ex = hx + Math.sin(a) * 19, ey = hy + Math.cos(a) * 19;
+    C([hx, hy], [lerp(hx, ex, .75), lerp(hy, ey, .75)], 3.6, 2); C([lerp(hx, ex, .75), lerp(hy, ey, .75)], [ex, ey], 2.8, 0);
+  }
+  const hc = [hombro[0] + (o.mira ? o.mira[0] * 1.2 : 0), hombro[1] - (abuelo ? 13 : 14)];
+  const hr = abuelo ? 10 : 11;
+  C(hc, hc, hr, 0);
+  if (abuelo) {
+    C([hc[0] - 6, hc[1] + 6], [hc[0] + 6, hc[1] + 6], 4.5, 5);             // barba blanca
+    C([hc[0] - 10, hc[1] - 7], [hc[0] + 10, hc[1] - 7], 4, 1);             // gorra
+    C([hc[0] + 4, hc[1] - 4], [hc[0] + 13, hc[1] - 4], 1.6, 1);            // visera
+  } else {
+    C([hc[0] - 9, hc[1] - 5], [hc[0] + 9, hc[1] - 5], 6, 1);               // pelo
+    C([hc[0] - 10, hc[1] - 2], [hc[0] - 14, hc[1] + 9], 3.2, 1);           // cola
+  }
+  const [mx, my] = o.mira || [0, 0];
+  const oy = hc[1] + (abuelo ? -1 : 1);
+  return {
+    ojos: [T(hc[0] - 4 + mx * 1.4, oy + my * 1.2), T(hc[0] + 4 + mx * 1.4, oy + my * 1.2)],
+    boca: T(hc[0] + mx * .8, hc[1] + (abuelo ? 4.5 : 6)), s,
+  };
+}
+
+// ───────────── WebGL2 ─────────────
+const glc = document.createElement('canvas'); glc.width = W; glc.height = H;
+const gl = glc.getContext('webgl2', { preserveDrawingBuffer: true, antialias: false });
+const VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS = `#version 300 es
+precision highp float;
+out vec4 fragColor;
+uniform vec2 R; uniform float T;
+uniform vec3 uCam; uniform float uZs, uHY, uNoche, uAlba, uNiebla;
+uniform float uGiro, uSube, uPuerta, uLinterna;
+uniform vec4 uSol;                          // x, y (pantalla), radio, intensidad
+uniform vec4 uBote;                         // x, y (mundo), escala, farol
+uniform vec4 uCa[${MAXC}]; uniform vec3 uCr[${MAXC}]; uniform int uN;
+uniform vec3 uAmb;
+uniform vec4 uOjos0, uOjos1; uniform vec3 uBoca0, uBoca1; uniform float uOjoR;
+
+float h1(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+vec2 h2(vec2 p){ return fract(sin(vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)))) * 43758.5453); }
+float ruido(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
+  return mix(mix(h1(i), h1(i+vec2(1,0)), f.x), mix(h1(i+vec2(0,1)), h1(i+vec2(1,1)), f.x), f.y); }
+float fbm(vec2 p){ float s = 0., a = .5; for (int i = 0; i < 5; i++){ s += a*ruido(p); p *= 2.03; a *= .5; } return s; }
+vec3 pal3(vec3 a, vec3 b, vec3 c, float k){ k = clamp(k, 0., 1.)*2.; return k < 1. ? mix(a,b,k) : mix(b,c,k-1.); }
+float sdCap(vec2 p, vec2 a, vec2 b, float r){ vec2 pa = p-a, ba = b-a; float h = clamp(dot(pa,ba)/max(dot(ba,ba),1e-4), 0., 1.); return length(pa-ba*h)-r; }
+float sdCaja(vec2 p, vec2 c, vec2 b){ vec2 d = abs(p-c)-b; return length(max(d,0.)) + min(max(d.x,d.y),0.); }
+
+// personajes: distancia a Lía (x) y al abuelo (y), y el material de cada uno en este punto
+vec2 gMat;
+vec2 gente(vec2 w){ vec2 d = vec2(1e5); vec2 mejor = vec2(1e5); gMat = vec2(0.);
+  for (int i = 0; i < ${MAXC}; i++){ if (i >= uN) break; float s = sdCap(w, uCa[i].xy, uCa[i].zw, uCr[i].x);
+    if (uCr[i].y < .5){ d.x = min(d.x, s); if (s < 0. || s < mejor.x){ gMat.x = uCr[i].z; mejor.x = min(mejor.x, s); } }
+    else { d.y = min(d.y, s); if (s < 0. || s < mejor.y){ gMat.y = uCr[i].z; mejor.y = min(mejor.y, s); } } }
+  return d; }
+vec3 colorDe(float quien, float m){
+  if (quien < .5) return m < .5 ? vec3(.93,.74,.6) : m < 1.5 ? vec3(.24,.14,.09) : m < 2.5 ? vec3(.98,.78,.18)
+                  : m < 3.5 ? vec3(.2,.3,.55) : m < 4.5 ? vec3(.75,.2,.18) : vec3(.9);
+  return m < .5 ? vec3(.86,.66,.54) : m < 1.5 ? vec3(.12,.15,.26) : m < 2.5 ? vec3(.16,.22,.38)
+       : m < 3.5 ? vec3(.3,.3,.33) : m < 4.5 ? vec3(.08) : vec3(.93,.93,.9); }
+
+float bordeIsla(float x){ return 520. + (ruido(vec2(x*.03, 2.))-.5)*6. + (x > 560. ? (x-560.)*.35 : 0.); }
+float caraIsla(float y){ return 640. + (y-520.)*.28 + (ruido(vec2(5., y*.03))-.5)*16.; }
+float anchoFaro(float y){ return mix(34., 48., clamp((y-130.)/390., 0., 1.)); }
+
+void main(){
+  vec2 sp = vec2(gl_FragCoord.x, R.y - gl_FragCoord.y);
+  float z = uCam.z; vec2 w = (sp - R*.5)/z + uCam.xy;
+  float px = 1.2/z;
+  float N = uNoche, Al = uAlba, Nb = uNiebla;
+  vec3 col;
+  // ── cielo: atardecer → noche → alba ──
+  vec3 cTop = mix(mix(vec3(.25,.25,.48), vec3(.02,.03,.09), N), vec3(.32,.42,.62), Al);
+  vec3 cMid = mix(mix(vec3(.78,.38,.46), vec3(.05,.07,.2), N), vec3(.85,.62,.62), Al);
+  vec3 cLow = mix(mix(vec3(1.,.72,.44), vec3(.1,.13,.28), N), vec3(1.,.8,.55), Al);
+  float hs = clamp((uHY - sp.y)/(1100.*uZs), 0., 1.);
+  col = hs < .4 ? mix(cLow, cMid, hs/.4) : mix(cMid, cTop, (hs-.4)/.6);
+  if (sp.y < uHY){
+    vec2 sc = vec2(sp.x + uCam.x*.12, uHY - sp.y)/min(uZs, 1.6);
+    float vis = clamp((N-.35)/.5, 0., 1.)*(1. - Al)*(1. - Nb*.9);
+    for (int k = 0; k < 2; k++){
+      float cel = k == 0 ? 12. : 25.;
+      vec2 id = floor(sc/cel), f = fract(sc/cel);
+      vec2 pos = h2(id + float(k)*17.); float b = h1(id*1.7 + float(k)*9.);
+      if (b < .3){ float d = length(f - pos)*cel; float tw = .6 + .4*sin(T*(1.3 + b*3.) + b*40.);
+        col += vec3(.9,.93,1.)*smoothstep(1.6 + float(k), 0., d)*vis*tw*(k == 0 ? .6 : 1.); }
+    }
+    if (uSol.w > 0.){ float d = length(sp - uSol.xy); col += vec3(1.,.62,.35)*exp(-d/(uSol.z*1.8))*.55*uSol.w;
+      col = mix(col, vec3(1.,.94,.78), smoothstep(uSol.z+1.5, uSol.z-1.5, d)*uSol.w); }
+  }
+  // ── mar ──
+  if (w.y >= 560.){
+    float p = clamp((w.y - 560.)/540., 0., 1.);
+    vec3 m0 = mix(mix(vec3(.9,.6,.5), vec3(.06,.1,.24), N), vec3(.95,.72,.6), Al);
+    vec3 m1 = mix(mix(vec3(.2,.3,.48), vec3(.02,.04,.13), N), vec3(.3,.42,.6), Al);
+    col = mix(m0, m1, sqrt(p));
+    vec2 q = vec2(w.x/(55.*(p + .06)), 2.2/(p + .03));
+    col += vec3(1.)*smoothstep(.62, .85, fbm(q*vec2(1.,.9) + vec2(T*.25, T*.35)))*(.04 + .14*p)*(1. - N*.6);
+    float fr = ruido(vec2(sp.x*.012 + T*.15, 11./(p + .03) + T*.9));     // destellos alargados a lo ancho
+    if (uSol.w > 0.){ float dx = (sp.x - uSol.x)/(uSol.z*(1.2 + p*3.)); col += vec3(1.,.75,.45)*exp(-dx*dx)*smoothstep(.45,.85,fr)*uSol.w*.8; }
+    if (uBote.w > 0.){ float dx = (w.x - uBote.x)/(12.*uBote.z*(1. + p*2.)); col += vec3(1.,.72,.4)*exp(-dx*dx)*smoothstep(.4,.8,fr)*uBote.w*.5*step(uBote.y, w.y); }
+  }
+  // ── el bote ──
+  if (uBote.z > 0.){
+    vec2 q = (w - uBote.xy)/uBote.z;
+    q.y -= sin(T*1.6)*1.2 + q.x*sin(T*1.1)*.02;                // se mece
+    float casco = max(sdCaja(q, vec2(0., 4.), vec2(30., 6.)), -(q.y + 2. - abs(q.x)*.05));
+    casco = min(casco, sdCaja(q, vec2(-6., -5.), vec2(9., 6.)));   // cabina
+    casco = min(casco, sdCap(q, vec2(8., -2.), vec2(8., -34.), .9)); // mástil
+    vec3 bc = mix(vec3(.12,.1,.12), vec3(.35,.22,.2), Al);
+    col = mix(col, bc, smoothstep(px/uBote.z, -px/uBote.z, casco));
+  }
+  // ── niebla: se mueve, más espesa abajo; tapa el mar, el bote y lo lejano ──
+  vec3 cN = mix(mix(vec3(.62,.58,.6), vec3(.3,.33,.41), N), vec3(.85,.78,.75), Al);
+  float fb = fbm(w*vec2(.0028, .006) + vec2(T*.05, T*.012));          // bancos de niebla que se corren
+  float espesa = Nb*(.3 + .7*smoothstep(.3, .75, fb))*smoothstep(0., 600., w.y);
+  col = mix(col, cN, clamp(espesa, 0., .9));
+  // farol del bote: se ve a través de la niebla
+  if (uBote.w > 0.){ float d = length(w - uBote.xy - vec2(-6., -12.)*uBote.z);
+    col += vec3(1.,.72,.38)*(exp(-d/(3.*uBote.z + 1.5))*1.2 + exp(-d/(40.*uBote.z + 30.*Nb))*.35)*uBote.w; }
+  // ── la isla ──
+  float top = bordeIsla(w.x);
+  bool enIsla = w.y > top && w.x < caraIsla(w.y);
+  if (enIsla){
+    vec3 rc = mix(mix(vec3(.3,.22,.22), vec3(.05,.05,.09), N), vec3(.36,.28,.26), Al);
+    rc *= .72 + .38*fbm(w*vec2(.018,.04));
+    float g = smoothstep(14., 0., w.y - top);                      // pasto en el borde de arriba
+    rc = mix(rc, mix(mix(vec3(.3,.4,.2), vec3(.05,.08,.07), N), vec3(.35,.45,.25), Al), g*.8);
+    col = mix(rc, cN, Nb*.35*smoothstep(500., 1000., w.y));
+  }
+  // muelle de madera al pie de la isla
+  if (w.x > caraIsla(w.y) - 10. && w.x < MUELLE_X && abs(w.y - 853.) < 4.) col = mix(mix(vec3(.4,.28,.2), vec3(.08,.07,.08), N), vec3(.45,.33,.25), Al);
+  for (int k = 0; k < 6; k++){ float xk = 740. + float(k)*52.; if (abs(w.x - xk) < 3. && w.y > 853. && w.y < 890.) col = mix(vec3(.25,.18,.14), vec3(.05), N*(1.-Al)); }
+  // ── el faro ──
+  float ha = anchoFaro(w.y);
+  vec3 luzF = mix(uAmb, vec3(1.,.9,.8), Al);
+  if (w.y > 130. && w.y < 522. && abs(w.x - 300.) < ha){
+    float banda = mod(floor((w.y - 130.)/78.), 2.);
+    vec3 fc = banda < .5 ? vec3(.92,.9,.86) : vec3(.72,.16,.14);
+    float lado = .75 + .25*smoothstep(ha, -ha, w.x - 300. + ha*.3);      // se oscurece hacia un costado
+    col = fc*luzF*lado;
+    // ventanas: se encienden cuando pasa la linterna
+    for (int k = 0; k < 4; k++){ float yv = 440. - float(k)*80.;
+      if (sdCaja(w, vec2(300., yv), vec2(4.5, 8.)) < 0.){
+        float lit = exp(-abs(yv - mix(505., 150., uSube))/28.)*uLinterna;
+        col = mix(vec3(.05,.06,.1), vec3(1.,.8,.45), clamp(lit, 0., 1.)); } }
+    // puerta abierta con luz de adentro
+    if (sdCaja(w, vec2(300., 503.), vec2(12., 17.)) < 0.) col = mix(vec3(.12,.08,.07), vec3(1.,.78,.45), uPuerta);
+  }
+  // galería (el balcón) y su baranda
+  if (abs(w.y - 131.) < 3. && abs(w.x - 300.) < 75.) col = vec3(.1,.1,.12)*(1. + Al);
+  if (w.y > 108. && w.y < 128. && abs(w.x - 300.) < 75. && (abs(w.y - 110.) < .8 || abs(mod(w.x - 225., 12.) - 6.) < .6)) col = vec3(.12,.12,.14)*(1. + Al);
+  // cuarto de la lámpara: vidrio, luego la lámpara y la gente, y los parantes por delante
+  vec2 L = vec2(300., 98.);
+  bool vidrio = w.y > 64. && w.y < 128. && abs(w.x - 300.) < 50.;
+  if (vidrio){
+    col = mix(col, vec3(.1,.12,.16), .55);
+    col += vec3(1.,.82,.5)*exp(-length(w - L)/38.)*.9;                 // la luz llena el cuarto
+  }
+  if (w.y > 42. && w.y < 64. && abs(w.x - 300.) < 54. - (64. - w.y)*1.8) col = vec3(.62,.14,.12)*luzF;     // techo
+  if (length(w - vec2(300., 40.)) < 3.) col = vec3(.2);
+  // la lámpara con su lente: franjas que corren al girar
+  float lente = sdCaja(w, L + vec2(0., 4.), vec2(15., 20.));
+  if (lente < 0.){
+    float fase = fract((w.x - 300.)/10. - uGiro/(3.1416*.5));
+    vec3 lc = mix(vec3(.95,.8,.5), vec3(1.,.97,.85), smoothstep(.3, .5, fase)*smoothstep(.9, .6, fase));
+    col = lc*(1.1 + .4*exp(-length(w - L)/6.));
+  }
+  if (sdCaja(w, vec2(300., 124.), vec2(18., 4.)) < 0.) col = vec3(.22,.2,.2);   // base de la lámpara
+  // manivela: una barra que va y viene al girar
+  float mv = sdCap(w, vec2(300., 120.), vec2(300. + 16.*cos(uGiro*2.), 120.), 1.2);
+  if (vidrio && mv < 0.) col = vec3(.35,.3,.28);
+  // ── la gente ──
+  vec2 dg = gente(w);
+  for (int k = 0; k < 2; k++){
+    float d = k == 0 ? dg.x : dg.y;
+    if (d < px*2.){
+      float m = k == 0 ? gMat.x : gMat.y;
+      vec3 base = colorDe(float(k), m);
+      float a = smoothstep(px, -px, d);
+      vec3 pc = base*mix(uAmb, vec3(1.,.9,.82), Al)*.8;
+      pc += base*vec3(1.,.8,.5)*exp(-length(w - L)/55.)*1.2*(vidrio ? 1. : .3);     // luz de la lámpara
+      pc += base*vec3(1.,.78,.45)*exp(-abs(w.y - 503.)/30.)*uPuerta*step(470., w.y)*.9;   // luz de la puerta
+      pc = mix(pc, base*.2, smoothstep(-1.2/max(z*.4, 1.), 0., d)*.75);         // contorno fino
+      col = mix(col, pc, a);
+    }
+  }
+  // ojos y boca
+  for (int k = 0; k < 4; k++){
+    vec2 e = k == 0 ? uOjos0.xy : k == 1 ? uOjos0.zw : k == 2 ? uOjos1.xy : uOjos1.zw;
+    float dueno = k < 2 ? dg.x : dg.y;
+    col = mix(col, vec3(.06,.05,.05), smoothstep(uOjoR + px, uOjoR - px, length((w - e)/vec2(1., 1.3)))*step(dueno, 0.));
+  }
+  float b0 = sdCap(w, uBoca0.xy - vec2(1.5, 0.), uBoca0.xy + vec2(1.5, 0.), .35 + uBoca0.z*1.3);
+  col = mix(col, vec3(.45,.15,.18), smoothstep(px, -px, b0)*step(dg.x, 0.)*.9);
+  float b1 = sdCap(w, uBoca1.xy - vec2(1.5, 0.), uBoca1.xy + vec2(1.5, 0.), .35 + uBoca1.z*1.3);
+  col = mix(col, vec3(.4,.14,.16), smoothstep(px, -px, b1)*step(dg.y, 0.)*.9);
+  // parantes del vidrio, delante de todo lo de adentro
+  if (vidrio && (abs(w.x - 250.) < 1.6 || abs(w.x - 283.) < 1. || abs(w.x - 317.) < 1. || abs(w.x - 350.) < 1.6 || abs(w.y - 66.) < 1.)) col = vec3(.08,.08,.1);
+  // velo de niebla delante de la isla y del faro en los planos abiertos (en los cercanos, no)
+  col = mix(col, cN, Nb*.38*smoothstep(.3, .75, fb)*(1. - smoothstep(1.2, 2.2, z))*smoothstep(0., 300., w.y));
+  // ── el haz: gira; se ve más en la niebla; cuando apunta a la cámara, destella ──
+  float c = cos(uGiro), s = sin(uGiro);
+  vec2 d = w - L; float lado = sign(c);
+  vec2 dir = normalize(vec2(lado, .035));
+  float lejos = dot(d, dir), perp = abs(d.x*dir.y - d.y*dir.x);
+  if (lejos > 50.){
+    float ancho = 6. + lejos*.07;
+    float largo = 2600.*abs(c) + 60.;
+    float haz = exp(-perp*perp/(ancho*ancho))*exp(-lejos/largo)*pow(abs(c), .6)*smoothstep(50., 90., lejos);
+    col += vec3(1.,.9,.7)*haz*(.18 + Nb*.75)*(1. - Al*.7)*(.85 + .15*fbm(w*.01 + vec2(T*.05, 0.)));
+  }
+  float destello = pow(max(s, 0.), 10.);
+  col += vec3(1.,.9,.72)*exp(-length(d)/(18. + 260.*destello))*(.35 + destello*1.1)*(1. - Al*.6);
+  // ── acabado de cine: viñeta, grano, franjas panorámicas ──
+  vec2 uv = sp/R;
+  col *= 1. - .45*pow(length((uv - .5)*vec2(1.1, 1.3)), 2.2);
+  col += (h1(sp + fract(T)*97.) - .5)*.035;
+  col = pow(max(col, 0.), vec3(.95));
+  if (sp.y < 138. || sp.y > R.y - 138.) col = vec3(0.);
+  fragColor = vec4(col, 1.);
+}`.replace('MUELLE_X', MUELLE[0].toFixed(1));
+function shader(tipo, src) {
+  const s = gl.createShader(tipo); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, shader(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FS));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+gl.viewport(0, 0, W, H);
+const U = new Proxy({}, { get: (c, n) => c[n] ?? (c[n] = gl.getUniformLocation(prog, n)) });
+
+// ───────────── un cuadro ─────────────
+function uniformes(t) {
+  const cam = camara(t);
+  const z = cam.z, zs = Math.pow(z, .35);
+  const hY = H / 2 + (HY - cam.y) * z;
+  const N = noche(t), Al = alba(t), Nb = niebla(t), g = giro(t);
+  gl.uniform2f(U.R, W, H); gl.uniform1f(U.T, t);
+  gl.uniform3f(U.uCam, cam.x, cam.y, z); gl.uniform1f(U.uZs, zs); gl.uniform1f(U.uHY, hY);
+  gl.uniform1f(U.uNoche, N); gl.uniform1f(U.uAlba, Al); gl.uniform1f(U.uNiebla, Nb); gl.uniform1f(U.uGiro, g);
+  gl.uniform3f(U.uAmb, ...[1, .84, .72].map((v, i) => lerp(v, [.42, .46, .62][i], N)));
+  // sol: se pone al principio, sale en el alba (lejos: se mueve y crece menos que el mundo)
+  const pos = (wx, wy) => [W / 2 + (wx - cam.x) * .45 * zs, hY + (wy - HY) * zs];
+  const ks = seg(t, 0, A('niebla')), ka = alba(t);
+  let sol = [0, 0, 0, 0];
+  if (ks < 1 && t < A('llega')) { const [sx, sy] = pos(1900, lerp(HY - 110, HY + 60, ks)); sol = [sx, sy, 62 * zs, 1 - ks * .7]; }
+  else if (ka > 0) { const [sx, sy] = pos(2100, lerp(HY + 50, HY - 120, ka)); sol = [sx, sy, 58 * zs, ka]; }
+  gl.uniform4f(U.uSol, ...sol);
+  const B = bote(t);
+  gl.uniform4f(U.uBote, B ? B.x : 0, B ? B.y : 0, B ? .22 + clamp((B.y - HY) / 290) * .95 : 0, B ? B.luz : 0);
+  gl.uniform1f(U.uSube, seg(t, F('subir', .1), F('subir', .75)));
+  gl.uniform1f(U.uLinterna, t > A('subir') - .2 && t < F('subir', .8) ? 1 : 0);
+  gl.uniform1f(U.uPuerta, t > A('lia1') - .3 && t < A('subir') ? 1 : 0);
+  // la gente
+  nCap = 0;
+  const donde = lugar(t);
+  let ojos = [[[-1e5, 0], [-1e5, 0]], [[-1e5, 0], [-1e5, 0]]], bocas = [[-1e5, 0], [-1e5, 0]];
+  const pon = (i, r) => { ojos[i] = r.ojos; bocas[i] = r.boca; };
+  const empujan = t > F('girar', .1) && t < A('lia3') - .2;
+  if (donde === 'abajo') {
+    pon(0, persona(283, 521, .36, { t, pose: 'pie', mira: [1, -1] }, 0));
+    pon(1, persona(318, 521, .44, { t, pose: 'pie', mira: t > A('abuelo1') ? [-1, .6] : [-.6, -.5], linterna: true }, 1));
+  } else if (donde === 'arriba') {
+    const pose = empujan ? 'empuja' : 'pie';
+    const miraL = t > A('lia3') - .2 ? [1, -1] : empujan ? [1, 0] : [1, -.6];
+    pon(0, persona(POS.lia, PISO, .36, { t, pose, giro: g, mira: miraL }, 0));
+    pon(1, persona(POS.abuelo, PISO, .44, { t, pose, giro: g, mira: t > A('lia3') - .2 ? [-1, .5] : [-1, .2] }, 1));
+  } else if (donde === 'galeria') {
+    pon(0, persona(POS.liaFuera, PISO + 2, .36, { t, pose: 'pie', mira: [-1, .2] }, 0));
+  }
+  gl.uniform4fv(U['uCa[0]'], capA); gl.uniform3fv(U['uCr[0]'], capR); gl.uniform1i(U.uN, nCap);
+  gl.uniform4f(U.uOjos0, ...ojos[0][0], ...ojos[0][1]); gl.uniform4f(U.uOjos1, ...ojos[1][0], ...ojos[1][1]);
+  gl.uniform3f(U.uBoca0, ...bocas[0], boca(t, 'lia')); gl.uniform3f(U.uBoca1, ...bocas[1], boca(t, 'abuelo'));
+  gl.uniform1f(U.uOjoR, 1.25);
+}
+
+function letrero(t) {
+  const k = seg(t, .3, 1.2) * (1 - seg(t, A('noche') + 1.5, A('noche') + 3));
+  if (k > 0) {
+    ctx.save(); ctx.globalAlpha = k; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = 18;
+    ctx.fillStyle = '#fff4dc'; ctx.font = 'italic 700 110px Georgia, "Times New Roman", serif';
+    ctx.fillText('El faro', 1280, 330);
+    ctx.fillStyle = '#ffd98a'; ctx.font = 'italic 400 34px Georgia, serif';
+    ctx.fillText('un cuento para una noche de niebla', 1280, 410);
+    ctx.restore();
+  }
+  const kf = seg(t, SIG('cierre') - 1.8, SIG('cierre') - .8) * (1 - seg(t, DUR - 1, DUR - .2));
+  if (kf > 0) {
+    ctx.save(); ctx.globalAlpha = kf; ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 16;
+    ctx.fillStyle = '#fff4dc'; ctx.font = 'italic 400 60px Georgia, serif';
+    ctx.fillText('Fin', W / 2, 250);
+    ctx.restore();
+  }
+}
+function render(t) {
+  uniformes(t); gl.drawArrays(gl.TRIANGLES, 0, 3); ctx.drawImage(glc, 0, 0);
+  letrero(t);
+  Reproductor.subtitulos(ctx, t, TI, { lia: '#ffd98a', abuelo: '#a9d4ff' });
+  const neg = Math.max(1 - seg(t, 0, .8), seg(t, DUR - 1.2, DUR));
+  if (neg > 0) { ctx.globalAlpha = neg; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+Reproductor.iniciar({ canvas: out, render, duracion: DUR, audio: 'mezcla.wav' });
+</script>
+</body>
+</html>

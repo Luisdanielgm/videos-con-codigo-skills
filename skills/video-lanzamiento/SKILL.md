@@ -107,8 +107,9 @@ Fuente principal: el prompt de motion design de @twoclipping en X (de libre uso)
 
 - **Nada de texto chiquito en las esquinas** (contadores, «01/05», marcos de cámara): firma de video hecho por IA.
 - **No demasiado rápido**: una idea por compás (≈ 2 s). Rebote mínimo (amortiguación ≥ 0,6), un solo color de acento.
-- **Cifras que cambian**: calcularlas con `t` redondeado al cuadro (`Math.round(t * 30) / 30`); con
-  desenfoque salían dobles.
+- **Cifras que cambian** (y azares por cuadro): calcularlas con `Reproductor.cuadro(t)`, el instante del cuadro
+  que se dibuja, igual en todos sus subcuadros. No con `Math.round(t * 30) / 30`: a 60 fps los subcuadros de los
+  cuadros impares caen a los dos lados del redondeo y la cifra sale doble (medido: 300 de 600 cuadros).
 - Que el cursor no tape lo que aprieta; escalas de gráficos fijas (calculadas con el valor final).
 - La música es más larga que el video: el servidor exporta con `-shortest`.
 - Volumen: `musica.py` deja ≈ −14/−15 LUFS con picos bajo −2 dBFS. Si sólo cambia la música, se remezcla sin

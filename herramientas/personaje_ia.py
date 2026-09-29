@@ -375,6 +375,37 @@ def construir(nombre):
                 cabeza=float(J["Head"][1]))
 
 
+PIEL_MATE = True       # False: la piel como salió de la biblioteca (para comparar antes y después)
+
+
+def piel_mate(ob):
+    """La piel dejaba de parecer piel (en la revisión se veía «de cera»). Medido en la textura de la IA:
+    la piel del visitante trae metal (medio 0,10, p90 0,24) y una aspereza casi igual en toda la cara (0,525–0,557).
+    Se deja el metal sólo donde es metal de verdad (el dorado, > 0,3), la aspereza varía un poco (ruido fino),
+    un relieve de poros muy suave y menos dispersión subsuperficial."""
+    m = ob.data.materials[0]; nt = m.node_tree; N = nt.nodes
+    b = next(n for n in N if n.type == "BSDF_PRINCIPLED")
+    sep = next(n for n in N if n.type == "SEPARATE_COLOR")
+    mayor = N.new("ShaderNodeMath"); mayor.operation = "GREATER_THAN"; mayor.inputs[1].default_value = .3
+    metal = N.new("ShaderNodeMath"); metal.operation = "MULTIPLY"
+    nt.links.new(sep.outputs["Blue"], mayor.inputs[0]); nt.links.new(sep.outputs["Blue"], metal.inputs[0])
+    nt.links.new(mayor.outputs[0], metal.inputs[1]); nt.links.new(metal.outputs[0], b.inputs["Metallic"])
+    coord = N.new("ShaderNodeTexCoord")
+    ruido = N.new("ShaderNodeTexNoise"); ruido.inputs["Scale"].default_value = 900; ruido.inputs["Detail"].default_value = 4
+    nt.links.new(coord.outputs["Object"], ruido.inputs["Vector"])
+    varia = N.new("ShaderNodeMath"); varia.operation = "MULTIPLY_ADD"
+    varia.inputs[1].default_value = .16; varia.inputs[2].default_value = -.04     # ±0,08 alrededor de +0,04 (más áspera)
+    nt.links.new(ruido.outputs["Fac"], varia.inputs[0])
+    aspera = N.new("ShaderNodeMath"); aspera.operation = "ADD"; aspera.use_clamp = True
+    nt.links.new(sep.outputs["Green"], aspera.inputs[0]); nt.links.new(varia.outputs[0], aspera.inputs[1])
+    nt.links.new(aspera.outputs[0], b.inputs["Roughness"])
+    nm = next(n for n in N if n.type == "NORMAL_MAP")
+    poros = N.new("ShaderNodeBump"); poros.inputs["Strength"].default_value = .08; poros.inputs["Distance"].default_value = .0004
+    nt.links.new(ruido.outputs["Fac"], poros.inputs["Height"]); nt.links.new(nm.outputs["Normal"], poros.inputs["Normal"])
+    nt.links.new(poros.outputs["Normal"], b.inputs["Normal"])
+    b.inputs["Subsurface Weight"].default_value = .15
+
+
 def cargar(nombre):
     """Como personajes.cargar: trae el personaje de biblioteca/personajes_ia.blend (copia, no enlace)."""
     with bpy.data.libraries.load(str(BLEND), link=False) as (src, dst):
@@ -382,6 +413,7 @@ def cargar(nombre):
     col = dst.collections[0]; bpy.context.scene.collection.children.link(col)
     esq = next(o for o in col.objects if o.type == "ARMATURE")
     ob = {o.name.split(".")[0]: o for o in col.all_objects}
+    if PIEL_MATE: piel_mate(ob[f"{nombre}_cuerpo"])
     return dict(esq=esq, ojos=[ob[f"{nombre}_ojo-1"], ob[f"{nombre}_ojo1"]], boca=ob[f"{nombre}_boca"],
                 cabeza=ob[f"{nombre}_cuerpo"], objetos=ob)
 

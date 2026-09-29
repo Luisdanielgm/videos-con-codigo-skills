@@ -6,8 +6,9 @@ description: 'Hace un video narrado donde cada cuadro lo calcula un solo shader 
 # Video en un shader (WebGL2, técnica 5)
 
 Resultado: `05-shader-webgl2/<video>/index.html` (+ `guion.json`, audio, `tiempos.js`) y el MP4 en
-`render/05-shader-webgl2_<video>.mp4`. No hay ejemplo publicado (el original era una escena de un libro con
-derechos, junto al mar, del atardecer a la noche).
+`render/05-shader-webgl2_<video>.mp4`. Ejemplo: `05-shader-webgl2/el-faro/` (un cuento original: faro, niebla y
+un bote, del atardecer a la noche y al alba). **Leerlo antes.** La narración y la mezcla no vienen en el repositorio:
+se regeneran con `narrar.py` y `sonido.py`.
 
 ## Qué hace falta
 

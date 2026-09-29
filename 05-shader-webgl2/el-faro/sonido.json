@@ -1,0 +1,12 @@
+{"pistas": [
+  {"tipo": "mar", "desde": "titulo", "hasta": "fin", "vol": 0.5, "entrada": 3, "salida": 3},
+  {"tipo": "musica", "desde": "titulo", "hasta": "niebla", "animo": "calma", "vol": 0.45, "salida": 3},
+  {"tipo": "viento", "desde": "niebla", "hasta": "llega", "vol": 0.28, "entrada": 3, "salida": 4},
+  {"tipo": "silencio", "en": "niebla", "f": 0.7, "dur": 4, "vol": 0.25, "caida": 2},
+  {"tipo": "latido", "en": "lia1", "f": 0, "dur": 4, "vol": 0.45},
+  {"tipo": "musica", "desde": "abuelo1", "hasta": "lia2", "animo": "misterio", "vol": 0.4, "entrada": 2},
+  {"tipo": "brillo", "en": "girar", "f": 0.7, "dur": 3, "vol": 0.4},
+  {"tipo": "musica", "desde": "barco", "hasta": "llega", "animo": "magia", "vol": 0.45, "entrada": 3, "salida": 3},
+  {"tipo": "brillo", "en": "barco", "f": 0.15, "dur": 2.5, "vol": 0.3},
+  {"tipo": "musica", "desde": "llega", "hasta": "fin", "animo": "calma", "vol": 0.35, "entrada": 3, "salida": 4}
+]}
