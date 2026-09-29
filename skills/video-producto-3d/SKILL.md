@@ -6,9 +6,9 @@ description: 'Técnica 9. Comercial (25–30 s) con objetos 3D del mundo del pro
 # Producto en 3D (técnica 9)
 
 Antes: leer la skill base **`video-lanzamiento`** y la de 3D **`video-threejs`** (three.js local, contrato de dos
-lienzos). No hay ejemplo publicado (los originales eran comerciales de productos propios); la estructura es
-`09-producto-3d/<producto>/index.html` + `datos.js` + `musica.json` + `pulsos.js`. El código 3D de
-`02-threejs/red-neuronal/` sirve de referencia.
+lienzos). Ejemplo: `09-producto-3d/libreta/` (una app de notas inventada: la libreta se abre, los renglones
+saltan como fichas que se dan vuelta, barras con cifras de ejemplo rotuladas, una campana; `index.html` +
+`musica.json` + `pulsos.js`, **leerlo entero**). Con datos reales del producto se suma `datos.js`.
 
 ## Qué hace falta
 

@@ -35,7 +35,7 @@ requirements.txt            el entorno de Python principal
 | 6 | Render real en Blender por script + captura de movimiento | `video-blender` | — (sí las herramientas) |
 | 7 | Acabado risográfico sobre un video hecho | `acabado-riso` | — |
 | 8 | Comercial: una sola forma que se vuelve cada pantalla | `video-forma-unica` | `08-lanzamiento/libreta/` (app de notas inventada) |
-| 9 | Comercial: objetos y datos del producto en 3D | `video-producto-3d` | — |
+| 9 | Comercial: objetos y datos del producto en 3D | `video-producto-3d` | `09-producto-3d/libreta/` (app de notas inventada) |
 | 10 | Comercial: partículas y tipografía cinética | `video-particulas` | `10-particulas/libreta/` (app de notas inventada) |
 | 11 | Comercial: globo, rutas y gráficos que se calculan | `video-datos-mapa` | — |
 | 12 | Comercial: capturas reales de la web en laptop y teléfono | `video-pantalla-real` | — |

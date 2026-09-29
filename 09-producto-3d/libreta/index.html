@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Libreta — video 3D (app de ejemplo)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #171a24; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="pulsos.js"></script>
+<script src="../../herramientas/movimiento.js"></script>
+<script src="../../herramientas/reproductor.js"></script>
+<script type="module">
+// Técnica 9 (ejemplo neutro): el producto contado con objetos 3D (three.js local) sobre la grilla de pulsos. Una
+// libreta baja y se abre; los renglones de su lista saltan como fichas y se dan vuelta para mostrar la tilde; la
+// semana se vuelve barras (cifras de ejemplo, rotuladas); una campana suena; la libreta se cierra y queda de frente.
+// «Libreta» es una app de notas INVENTADA (lo dice al final).
+import * as THREE from '../../herramientas/vendor/three.module.min.js';
+
+const M = Movimiento, { clamp, lerp, tramo, escalon, resorte } = M;
+const P = M.pulsos(PULSOS.bpm, PULSOS.inicio), T = b => P.t(b);
+const DUR = T(44) + .9;
+const W = 1920, H = 1080;
+const out = document.getElementById('c'), ctx = out.getContext('2d');
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const C = { fondo1: '#171a24', fondo2: '#23283a', ambar: '#F0A43A', ambarO: '#b86f12', crema: '#F5F1E8', tinta: '#1E2230', gris: '#8C8F9A', texto: '#F1EDE4' };
+const FUENTE = '"Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif';
+const MARCA = 'Bahnschrift, "Segoe UI Variable Display", sans-serif';
+
+// ───────────── three.js ─────────────
+const gl = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+gl.setPixelRatio(1); gl.setSize(W, H, false); gl.setClearColor(0x000000, 0);
+gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 1;
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(35, W / H, .1, 200);
+scene.add(new THREE.HemisphereLight('#fff3e0', '#20243a', 1.5));
+const sol = new THREE.DirectionalLight('#ffffff', 2.0); sol.position.set(4, 6, 8); scene.add(sol);
+// entorno de estudio propio (cajas de luz) para los reflejos de la tapa y la campana
+{
+  const est = new THREE.Scene();
+  const caja = (c, x, y, z, s) => { const m = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), new THREE.MeshBasicMaterial({ color: c, side: THREE.BackSide })); m.position.set(x, y, z); est.add(m); };
+  caja('#15171f', 0, 0, 0, 40); caja('#ffffff', 0, 12, 0, 6); caja('#ffe2b8', 14, 4, 6, 4);
+  est.traverse(o => { if (o.material) o.material.side = THREE.BackSide; });
+  scene.environment = new THREE.PMREMGenerator(gl).fromScene(est, .04).texture;
+}
+
+function lienzo(w, h, dibujar) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  dibujar(c.getContext('2d'), w, h);
+  const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8;
+  return tx;
+}
+function t2(g, s, x, y, tam, peso, color, alinear = 'left', fuente = FUENTE) {
+  g.font = `${peso} ${tam}px ${fuente}`; g.fillStyle = color; g.textAlign = alinear; g.textBaseline = 'middle'; g.fillText(s, x, y);
+}
+function casilla(g, x, y, s, tilde) {
+  g.lineWidth = 8; g.strokeStyle = C.ambar; g.fillStyle = C.ambar; g.beginPath(); g.roundRect(x - s / 2, y - s / 2, s, s, 14);
+  if (tilde) { g.fill(); g.strokeStyle = '#fff'; g.lineWidth = 10; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath(); g.moveTo(x - s * .25, y); g.lineTo(x - s * .05, y + s * .2); g.lineTo(x + s * .28, y - s * .22); }
+  g.stroke();
+}
+const LISTA = ['Pan', 'Leche', 'Café'];
+
+// ── la libreta: tapa con bisel y brillo, hojas, anillos; la tapa gira sobre el lomo ──
+const LW = 2.4, LH = 3.2;
+function formaRedonda(w, h, r) {
+  const s = new THREE.Shape(), x = -w / 2, y = -h / 2;
+  s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r); s.lineTo(x + w, y + h - r);
+  s.quadraticCurveTo(x + w, y + h, x + w - r, y + h); s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r);
+  s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y); return s;
+}
+const geoTapa = new THREE.ExtrudeGeometry(formaRedonda(LW, LH, .16), { depth: .05, bevelEnabled: true, bevelThickness: .025, bevelSize: .025, bevelSegments: 4 });
+const matTapa = new THREE.MeshPhysicalMaterial({ color: C.ambar, roughness: .42, clearcoat: .6, clearcoatRoughness: .3, emissive: C.ambarO, emissiveIntensity: .12 });
+const libreta = new THREE.Group(); scene.add(libreta);
+const trasera = new THREE.Mesh(geoTapa, matTapa); trasera.position.z = -.2; libreta.add(trasera);
+const hojas = new THREE.Mesh(new THREE.BoxGeometry(LW - .12, LH - .12, .3), new THREE.MeshStandardMaterial({ color: C.crema, roughness: .95 }));
+hojas.position.z = -.02; libreta.add(hojas);
+const hoja = conLista => lienzo(460, 620, (g, w, h) => {
+  g.fillStyle = C.crema; g.fillRect(0, 0, w, h);
+  g.strokeStyle = '#e2dccd'; g.lineWidth = 2; for (let y = 150; y < h; y += 70) { g.beginPath(); g.moveTo(40, y); g.lineTo(w - 30, y); g.stroke(); }
+  t2(g, 'Lista del súper', 60, 90, 44, 700, C.tinta);
+  if (conLista) LISTA.forEach((s, i) => { casilla(g, 84, 200 + i * 90, 40, false); t2(g, s, 124, 202 + i * 90, 36, 500, C.tinta); });
+});
+const texPagina = hoja(true), texPaginaSola = hoja(false);     // cuando los renglones saltan, la hoja queda sin ellos
+const pagina = new THREE.Mesh(new THREE.PlaneGeometry(LW - .2, LH - .2), new THREE.MeshStandardMaterial({ map: texPagina, roughness: .95 }));
+pagina.position.z = .135; libreta.add(pagina);
+const bisagra = new THREE.Group(); bisagra.position.set(-LW / 2, 0, .16); libreta.add(bisagra);
+const tapa = new THREE.Mesh(geoTapa, matTapa); tapa.position.set(LW / 2, 0, 0); bisagra.add(tapa);
+const texEtiqueta = lienzo(400, 140, (g, w, h) => { g.fillStyle = C.crema; g.beginPath(); g.roundRect(0, 0, w, h, 24); g.fill(); t2(g, 'libreta', w / 2, h / 2 + 4, 76, 700, C.tinta, 'center', MARCA); });
+const etiqueta = new THREE.Mesh(new THREE.PlaneGeometry(1.4, .49), new THREE.MeshBasicMaterial({ toneMapped: false, map:texEtiqueta, transparent: true }));
+etiqueta.position.set(LW / 2, .5, .1); bisagra.add(etiqueta);
+const matAnillo = new THREE.MeshStandardMaterial({ color: '#d8d8dc', metalness: .9, roughness: .25 });
+for (let i = 0; i < 7; i++) { const a = new THREE.Mesh(new THREE.TorusGeometry(.13, .025, 10, 32), matAnillo); a.position.set(-LW / 2, -1.25 + i * .42, 0); a.rotation.y = Math.PI / 2; libreta.add(a); }
+
+// ── los renglones como fichas: casilla vacía por delante, tildada y tachada por detrás ──
+function texFicha(s, tilde) {
+  return lienzo(840, 168, (g, w, h) => {
+    g.fillStyle = C.crema; g.beginPath(); g.roundRect(0, 0, w, h, 30); g.fill();
+    casilla(g, 84, h / 2, 64, tilde);
+    t2(g, s, 150, h / 2 + 3, 60, tilde ? 500 : 600, tilde ? C.gris : C.tinta);
+    if (tilde) { g.fillStyle = C.gris; g.fillRect(150, h / 2, g.measureText(s).width, 5); }
+  });
+}
+const fichas = LISTA.map(s => {
+  const lado = new THREE.MeshStandardMaterial({ color: '#e7e0cf' });
+  const mats = [lado, lado, lado, lado, new THREE.MeshBasicMaterial({ toneMapped: false, map:texFicha(s, false) }), new THREE.MeshBasicMaterial({ toneMapped: false, map:texFicha(s, true) })];
+  const m = new THREE.Mesh(new THREE.BoxGeometry(2.1, .42, .04), mats); scene.add(m); return m;
+});
+
+// ── la semana en barras (cifras de ejemplo: la app no existe) ──
+const SEMANA = [['L', 3], ['M', 5], ['M', 2], ['J', 6], ['V', 4], ['S', 1], ['D', 3]];
+const MAX = Math.max(...SEMANA.map(s => s[1]));
+const grafico = new THREE.Group(); grafico.position.set(2.2, -1.3, 0); scene.add(grafico);
+const barras = SEMANA.map(([, v], i) => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(.36, 1, .36), new THREE.MeshPhysicalMaterial({ color: v === MAX ? C.ambar : '#5b6275', roughness: .5, clearcoat: .4 }));
+  m.position.set(-1.35 + i * .45, 0, 0); m.userData.h = v / MAX * 2.6; grafico.add(m); return m;
+});
+const piso = new THREE.Mesh(new THREE.BoxGeometry(3.4, .04, .8), new THREE.MeshStandardMaterial({ color: '#2d3246' })); piso.position.y = -.02; grafico.add(piso);
+
+// ── la campana (torno) con su badajo ──
+const perfil = [[.05, .9], [.12, .86], [.2, .74], [.26, .5], [.3, .2], [.36, -.05], [.48, -.2], [.55, -.26], [0, -.26]].map(([x, y]) => new THREE.Vector2(x, y));
+const campana = new THREE.Group(); campana.position.set(2.3, 1.1, 0); scene.add(campana);
+const matCamp = new THREE.MeshPhysicalMaterial({ color: C.ambar, metalness: .35, roughness: .32, clearcoat: .6, emissive: C.ambarO, emissiveIntensity: .25 });
+const cuerpo = new THREE.Mesh(new THREE.LatheGeometry(perfil, 48), matCamp); cuerpo.scale.setScalar(1.6); cuerpo.position.y = -1.6 * .9; campana.add(cuerpo);
+const badajo = new THREE.Mesh(new THREE.SphereGeometry(.14, 24, 16), matCamp); campana.add(badajo);
+const texAviso = lienzo(900, 150, (g, w, h) => {
+  g.fillStyle = C.crema; g.beginPath(); g.roundRect(0, 0, w, h, 75); g.fill();
+  g.fillStyle = C.ambar; g.beginPath(); g.arc(75, h / 2, 22, 0, 7); g.fill();
+  t2(g, 'Libreta · Lista del súper', 120, h / 2 - 22, 38, 700, C.tinta); t2(g, 'Mañana a las 9:00', 120, h / 2 + 26, 34, 500, C.gris);
+});
+const aviso = new THREE.Mesh(new THREE.PlaneGeometry(3, .5), new THREE.MeshBasicMaterial({ toneMapped: false, map:texAviso, transparent: true })); scene.add(aviso);
+
+// ───────────── cámara ─────────────
+const CAM = [
+  [0, [0, .3, 11.5], [.2, .1, 0]],
+  [4, [.6, .1, 9.6], [1.4, 0, 0]],
+  [8, [0, .4, 11], [.9, 0, 0]],
+  [16, [0, 1.3, 11.2], [.9, -.3, 0]],
+  [24, [0, .1, 10.6], [.9, .1, 0]],
+  [32, [0, .1, 10.4], [0, .4, 0]],
+];
+const RES = [1, 2].map(k => [0, 1, 2].map(n => CAM.map((c, i) => [T(c[0]), (i ? CAM[i - 1] : c)[k][n], c[k][n]])));
+function camara(t) {
+  cam.position.set(...RES[0].map(c => resorte(t, c, { hz: .9, amort: .9 })));
+  cam.lookAt(V(...RES[1].map(c => resorte(t, c, { hz: .9, amort: .9 }))));
+}
+
+// ───────────── la escena en el instante t ─────────────
+function actualizar(t) {
+  // libreta: baja girando, se abre, se corre hacia atrás; al final vuelve al centro, cerrada y de frente
+  const baja = escalon(t - T(0), 1.1, .8), abre = escalon(t - T(4), 1.4, .8), cierra = escalon(t - T(30.5), 1.6, .82);
+  const atras = tramo(t, T(15.2), T(16.4), 'expo') * (1 - tramo(t, T(31), T(32.4), 'expo'));
+  const aleja = escalon(t - T(8), 1.6, .8);                   // cuando saltan las fichas, la libreta se corre atrás
+  const fin = escalon(t - T(31.5), 1.2, .78);
+  libreta.visible = t < T(16.6) || t > T(30.8);
+  pagina.material.map = t > T(8) ? texPaginaSola : texPagina;
+  libreta.position.set(lerp(lerp(3.6 - .6 * aleja, 4.5, atras), 0, fin), lerp(lerp(5, 0, baja), .9, fin), lerp(-1.6 * aleja, -5, atras));
+  libreta.rotation.set(lerp(-.1, 0, baja) + .03 * Math.sin(t * .9), lerp(lerp(-.9, -.25, baja), 0, fin) + .05 * Math.sin(t * .6), .03);
+  libreta.scale.setScalar(lerp(1, .8, fin));
+  bisagra.rotation.y = -Math.PI * .88 * abre * (1 - cierra);
+  // fichas: saltan de la hoja, se dan vuelta de a una (tilde) y se van con la libreta
+  fichas.forEach((f, i) => {
+    f.visible = t > T(8) && t < T(16);
+    if (!f.visible) return;
+    const k = escalon(t - T(8) - i * .08, 1.9, .78);
+    const desde = V(3.5, .7 - i * .45, .3), columna = V(3.3, 1.0 - i * .75, 1.8);
+    const pos = desde.lerp(columna, k), va = tramo(t, T(15.2), T(15.9), 'expoIn');
+    pos.add(V(1.5 * va, .4 * va * (i - 1), -3 * va));
+    f.position.copy(pos); f.scale.setScalar(Math.max(.001, lerp(.6, 1, k) * (1 - va)));
+    f.rotation.set(-.05 * (1 - k), Math.PI * escalon(t - T(10.5 + i), 2.4, .72) - .15 * (1 - k), 0);
+  });
+  // barras: suben de a una; la cámara las mira desde arriba
+  const kg = escalon(t - T(15.8), 1.8, .8) * (1 - tramo(t, T(23.4), T(24), 'expoIn'));
+  grafico.visible = kg > .001; grafico.scale.setScalar(Math.max(.001, kg)); grafico.rotation.y = -.35 + .1 * Math.sin(t * .5);
+  barras.forEach((b, i) => { const k = escalon(t - T(16.5 + .5 * i), 2.2, .75); const h = Math.max(.001, b.userData.h * k); b.scale.y = h; b.position.y = h / 2; });
+  // campana: entra, suena (se balancea desde arriba) y sale el aviso
+  const kc = escalon(t - T(23.8), 1.8, .75) * (1 - tramo(t, T(30.6), T(31.2), 'expoIn'));
+  campana.visible = kc > .001; campana.scale.setScalar(Math.max(.001, kc));
+  const d = t - T(26.5), vaiven = d > 0 ? Math.sin(d * 9) * .28 * Math.exp(-d * 1.8) : 0;
+  campana.rotation.set(0, .4 + .2 * Math.sin(t * .6), vaiven);
+  badajo.position.set(Math.sin(-vaiven * 1.8) * .5, -1.6 * .9 - .45, 0);
+  const ka = escalon(t - T(27), 2.2, .78) * (1 - tramo(t, T(30.4), T(31), 'expoIn'));
+  aviso.visible = ka > .001; aviso.material.opacity = clamp(ka * 1.5);
+  aviso.position.set(2.3, lerp(-1.4, -1.2, ka), 1.2); aviso.scale.setScalar(Math.max(.001, ka));
+}
+
+// ───────────── texto encima (2D): sube desde su máscara ─────────────
+function tx(s, x, y, tam, peso, color, alinear = 'left', fuente = FUENTE) { ctx.font = `${peso} ${tam}px ${fuente}`; ctx.fillStyle = color; ctx.textAlign = alinear; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y); }
+function ancho(s, tam, peso, fuente = FUENTE) { ctx.font = `${peso} ${tam}px ${fuente}`; return ctx.measureText(s).width; }
+function sube(t, a, b, s, x, y, tam, peso, color, alinear = 'left', fuente = FUENTE) {
+  const k = escalon(t - T(a), 2.6, .9) - (b != null ? escalon(t - T(b), 3, .9) : 0);
+  if (t < T(a) || k <= .002 || (b != null && t > T(b) + 1)) return;
+  const sale = b != null && t > T(b);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, y - tam, W, tam * 1.7); ctx.clip();
+  tx(s, x, y + tam * 1.8 * (sale ? -(1 - k) : (1 - k)), tam, peso, color, alinear, fuente); ctx.restore();
+}
+// título: una línea por renglón, cada una desde su máscara; `*` marca la palabra de acento
+function titulo(t, a, b, lineas, sub, y = 420) {
+  lineas.forEach((l, i) => {
+    const partes = l.split('*');
+    if (partes.length === 1) sube(t, a + i * .25, b, l, 120, y + i * 96, 84, 700, C.texto);
+    else {
+      sube(t, a + i * .25, b, partes[0], 120, y + i * 96, 84, 700, C.texto);
+      sube(t, a + i * .25, b, partes[1], 120 + ancho(partes[0], 84, 700), y + i * 96, 84, 700, C.ambar);
+    }
+  });
+  if (sub) sub.split('\n').forEach((s, i) => sube(t, a + .6 + i * .15, b, s, 120, y + lineas.length * 96 + 20 + i * 52, 38, 400, C.gris));
+}
+function proyectar(v) { const p = v.clone().project(cam); return [(p.x + 1) / 2 * W, (1 - p.y) / 2 * H]; }
+function diasSemana(t) {
+  const k = clamp((t - T(16.8)) / .4) * (1 - tramo(t, T(23.2), T(23.8)));
+  if (k <= 0) return;
+  ctx.save(); ctx.globalAlpha = k;
+  barras.forEach((b, i) => {
+    const [x, y] = proyectar(b.getWorldPosition(V(0, 0, 0)).setY(grafico.position.y - .28));
+    tx(SEMANA[i][0], x, y, 30, 600, C.gris, 'center');
+  });
+  ctx.restore();
+}
+function cierre(t) {
+  const y = 800;
+  sube(t, 32.8, null, 'libreta', 960, y, 120, 700, C.texto, 'center', MARCA);
+  sube(t, 33.6, null, 'Tus notas, en orden.', 960, y + 100, 44, 500, C.gris, 'center', MARCA);
+  sube(t, 34.4, null, 'App de ejemplo: no existe', 960, y + 170, 32, 600, C.ambar, 'center');
+}
+
+// ───────────── cuadro ─────────────
+function render(t) {
+  camara(t); actualizar(t); gl.render(scene, cam);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
+  const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, C.fondo1); g.addColorStop(1, C.fondo2);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(gl.domElement, 0, 0);
+  titulo(t, .6, 7.6, ['Tus notas,', 'a *mano.'], 'Una libreta que va\ncontigo en el teléfono.');
+  titulo(t, 8.4, 15.4, ['Tacha lo que', 'ya *hiciste.'], 'Cada casilla, un toque.');
+  titulo(t, 16.4, 23.2, ['Mira tu', '*semana.'], 'Tareas tachadas por día\n(cifras de ejemplo).', 380);
+  titulo(t, 24.4, 30.6, ['Te avisa', 'a *tiempo.'], 'Recordatorios a la hora que digas.');
+  diasSemana(t);
+  cierre(t);
+  const neg = Math.max(1 - clamp(t / .4), clamp((t - (DUR - .7)) / .7));
+  if (neg > 0) { ctx.globalAlpha = neg; ctx.fillStyle = C.fondo1; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+
+document.fonts.ready.then(() => setTimeout(() => Reproductor.iniciar({ canvas: out, render, duracion: DUR, audio: 'musica.wav', desenfoque: 4 }), 300));
+</script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+  "bpm": 112,
+  "compases": 11,
+  "progresion": ["Bb", "F", "Gm", "Eb"],
+  "secciones": [
+    {"desde": 0, "hasta": 2, "partes": ["pad", "arpegio"]},
+    {"desde": 2, "hasta": 7, "partes": ["bombo", "hat", "caja", "bajo", "pad", "arpegio"]},
+    {"desde": 7, "hasta": 8, "partes": ["bajo", "pad", "arpegio"]},
+    {"desde": 8, "hasta": 10, "partes": ["bombo", "hat", "caja", "bajo", "pad", "arpegio"]},
+    {"desde": 10, "hasta": 11, "partes": ["pad"]}
+  ],
+  "silencio_antes": [8, 32],
+  "efectos": [
+    {"tipo": "deslizar", "pulso": 4, "vol": 0.7},
+    {"tipo": "riser", "pulso": 8, "pulsos": 4},
+    {"tipo": "impacto", "pulso": 8},
+    {"tipo": "whoosh", "pulso": 8.2, "vol": 0.6},
+    {"tipo": "check", "pulso": 10.5},
+    {"tipo": "check", "pulso": 11.5},
+    {"tipo": "check", "pulso": 12.5},
+    {"tipo": "whoosh", "pulso": 15.5, "vol": 0.8},
+    {"tipo": "pop", "pulso": 16.5, "vol": 0.45},
+    {"tipo": "pop", "pulso": 17, "vol": 0.45},
+    {"tipo": "pop", "pulso": 17.5, "vol": 0.45},
+    {"tipo": "pop", "pulso": 18, "vol": 0.45},
+    {"tipo": "pop", "pulso": 18.5, "vol": 0.45},
+    {"tipo": "pop", "pulso": 19, "vol": 0.45},
+    {"tipo": "pop", "pulso": 19.5, "vol": 0.45},
+    {"tipo": "whoosh", "pulso": 23.5, "vol": 0.8},
+    {"tipo": "notificacion", "pulso": 26.5, "vol": 0.7},
+    {"tipo": "whoosh", "pulso": 31.5, "vol": 0.7},
+    {"tipo": "riser", "pulso": 32, "pulsos": 4},
+    {"tipo": "impacto", "pulso": 32}
+  ]
+}
