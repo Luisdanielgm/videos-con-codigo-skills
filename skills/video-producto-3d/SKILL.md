@@ -51,7 +51,8 @@ mientras la cámara la sigue. Cierra con tarjetas de funciones y el logo.
 - Un viaje de cámara largo entre escenas se ve como objetos cruzando la pantalla: mejor un **corte** (otra
   lista de resortes que arranca en ese pulso).
 - Etiquetas de la escala que se salen del cuadro: ubicarlas del lado donde hay espacio.
-- Cifras que cambian: calcular con `t` redondeado al cuadro.
+- Cifras que cambian: calcular con `Reproductor.cuadro(t)` (igual en todos los subcuadros; redondear a 1/30 no
+  alcanza a 60 fps).
 - **`material.clone()` clona también los `clippingPlanes`**: el costado quedó cortado por un plano fijo a la
   mitad de la pieza. Después de clonar, reasignar el mismo arreglo de planos.
 - Los planos de recorte en el mundo se calculan con `matrixWorld`: llamar `scene.updateMatrixWorld(true)`
