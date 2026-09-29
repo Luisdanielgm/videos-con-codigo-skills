@@ -5,8 +5,8 @@ description: 'Técnica 13. Showreel vertical para reels (1080×1920, ~17 s) de o
 
 # Showreel vertical (técnica 13)
 
-Antes: leer la skill base **`video-lanzamiento`**. No hay ejemplo publicado (los originales eran de productos
-propios): un `index.html` de esta técnica tiene unas 25 líneas, sólo la configuración.
+Antes: leer la skill base **`video-lanzamiento`**. Ejemplo: `13-showreel/libreta/` (una app de notas inventada):
+su `index.html` tiene unas 25 líneas, sólo la configuración; el motor es `herramientas/showreel.js`.
 
 ## Qué hace falta
 

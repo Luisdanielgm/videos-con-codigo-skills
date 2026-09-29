@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Libreta — showreel vertical (app de ejemplo)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #171a24; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { height: 100vh; width: 56.25vh; max-width: 100vw; max-height: 177.78vw; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script src="pulsos.js"></script>
+<script src="../../herramientas/movimiento.js"></script>
+<script src="../../herramientas/reproductor.js"></script>
+<script src="../../herramientas/showreel.js"></script>
+<script>
+// Técnica 13 (ejemplo neutro): showreel tipográfico vertical de «Libreta», una app de notas INVENTADA. El cierre
+// dice que es de ejemplo. El motor es herramientas/showreel.js; acá sólo van los textos y los colores.
+Showreel.video(Object.assign({ canvas: document.getElementById('c'), logo: 'marca/logo.png' }, {"colores": {"fondo": "#171a24", "acento": "#F0A43A", "acento2": "#7DA2C9", "texto": "#F5F1E8"}, "nombre": ["libre", "ta"], "gancho": ["¿DÓNDE", "ANOTASTE", "ESO?"], "sub": "tus notas, en un solo lugar", "lineas": ["Escribe.", "Tacha.", "Encuentra."], "formas": ["SÚPER", "IDEAS", "TAREAS", "VIAJE"], "numero": {"valor": 3, "etiqueta": "toques para una lista (ejemplo)"}, "marquesina": "LIBRETA", "rafaga": ["Recordatorios a la hora que digas.", "Compártela: se tacha para todos."], "cierre": "Tus notas, en orden.", "url": "App de ejemplo"}));
+</script>
+</body>
+</html>

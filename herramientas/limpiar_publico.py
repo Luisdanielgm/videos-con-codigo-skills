@@ -48,6 +48,8 @@ GRUPOS = [
     ("08-lanzamiento/libreta/*", None),             # app de notas inventada (29-sep)
     ("09-producto-3d/libreta/*", None),
     ("10-particulas/libreta/*", None),
+    ("13-showreel/libreta/*", None),
+    ("13-showreel/libreta/marca/*", None),
     ("17-archivo/revolucion-industrial/*", None),
     ("18-epica-lineal/historia-del-vuelo/*", None),
     ("18-epica-lineal/historia-del-vuelo/efectos/*", None),
