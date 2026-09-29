@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Libreta — pantalla real (app de ejemplo)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #171a24; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="pulsos.js"></script>
+<script src="../../herramientas/movimiento.js"></script>
+<script src="../../herramientas/reproductor.js"></script>
+<script src="../../herramientas/pantalla.js"></script>
+<script>
+// Técnica 12 (ejemplo neutro): capturas reales de una web dentro de una laptop y un teléfono dibujados en código,
+// con zoom, scroll, cursor y notas, manejado por un guion en pulsos. La web es la de «Libreta», una app de notas
+// INVENTADA que vive en sitio/ (servidor local) y se captura con capturar_web.py; ella misma dice que es de ejemplo.
+const api = Pantalla.video({
+  canvas: document.getElementById('c'),
+  colores: { fondo1: '#171a24', fondo2: '#23283a', acento: '#F0A43A', sobreAcento: '#1E2230', texto: '#F5F1E8', gris: '#8C8F9A' },
+  imagenes: { inicio: 'capturas/inicio.png', app: 'capturas/app.png', movil: 'capturas/movil.png' },
+  dispositivos: { lap: { tipo: 'laptop', x: 410, y: 150, w: 1100 }, tel: { tipo: 'telefono', cx: 1500, cy: 520, h: 820 } },
+  duracion: 52,
+  guion: [
+    [4, 'entra', 'lap', 'inicio'],
+    [5, 'texto', 'Una app de notas, de ejemplo.'],
+    [7.5, 'zoom', 'lap', 60, 180, 620, 500, 1.2], [7.5, 'nota', 'lap', 300, 212, 'Lo dice arriba: no existe'],
+    [8, 'texto', 'Tus notas, en orden.'],
+    [11, 'zoom', 'lap', 800, 260, 1380, 530, 1.25], [11, 'nota', 'lap', 1100, 470, 'Una lista que se tacha'],
+    [11.5, 'texto', 'Listas con casillas: un toque y se tacha.'],
+    [14, 'general'], [14, 'nota', 'lap', 0, 0, null],
+    [15, 'cursor', 'lap', 1306, 45], [16, 'clic'], [16.3, 'imagen', 'lap', 'app'],
+    [17, 'texto', 'Adentro, cada nota con su etiqueta.'],
+    [18.5, 'zoom', 'lap', 334, 122, 844, 364, 1.3], [18.5, 'nota', 'lap', 596, 176, 'Etiqueta por color'],
+    [22, 'texto', 'Recordatorios a la hora que digas.'],
+    [23, 'zoom', 'lap', 350, 300, 700, 350, 1.4], [23, 'nota', 'lap', 662, 330, 'Mañana, 9:00'],
+    [26, 'general'], [26, 'nota', 'lap', 0, 0, null],
+    [27, 'texto', 'Y la búsqueda, siempre a mano.'],
+    [28, 'zoom', 'lap', 429, 22, 989, 70, 1.4], [28, 'cursor', 'lap', 700, 46],
+    [31, 'general'], [31, 'ocultarCursor'],
+    [32, 'mueve', 'lap', { x: 170, y: 190, w: 980 }], [32, 'entra', 'tel', 'movil'],
+    [33, 'texto', 'La misma libreta en el teléfono.'],
+    [33.5, 'camara', 1500, 540, 1.28],
+    [35.5, 'scroll', 'tel', 1400], [39, 'scroll', 'tel', 0],
+    [42.6, 'general'],
+    [43.4, 'sale', 'lap'], [43.4, 'sale', 'tel'], [43.4, 'texto', null],
+  ],
+  pantallaCompleta(t, a) {
+    const { ctx, T, M, C, F } = a, { clamp, escalon } = M;
+    Pantalla.titular(a, t, .4, 3.8, ['Así se ve', '*Libreta.'], { y: 440, tam: 110 });
+    if (t < T(44)) return;
+    const d = t - T(44), k = escalon(d, 1.7, .66);
+    ctx.globalAlpha = clamp(d / .1);
+    const w = 150 * (.75 + .25 * k), h = w * 1.3;                     // el ícono: tapa ámbar con el lomo oscuro
+    ctx.fillStyle = C.acento; ctx.beginPath(); ctx.roundRect(960 - w / 2, 330 - h / 2, w, h, 26); ctx.fill();
+    ctx.fillStyle = '#1E2230'; ctx.fillRect(960 - w / 2, 330 - h / 2 + 12, 22 * w / 150, h - 24);
+    const k2 = escalon(d - .5, 2.2, .82); ctx.globalAlpha = clamp(k2 * 1.5);
+    ctx.font = `700 120px Bahnschrift, ${F}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    ctx.fillStyle = C.texto; ctx.fillText('libreta', 960, 560 + 24 * (1 - k2));
+    const k3 = escalon(d - 1, 2.2, .85); ctx.globalAlpha = clamp(k3 * 1.5);
+    ctx.font = `400 42px ${F}`; ctx.fillStyle = C.gris; ctx.fillText('Tus notas, en orden.', 960, 670 + 20 * (1 - k3));
+    const k4 = escalon(d - 1.5, 2.2, .82), s = 'App de ejemplo: no existe'; ctx.globalAlpha = clamp(k4 * 1.5);
+    ctx.font = `700 38px ${F}`; const wb = ctx.measureText(s).width + 90;
+    ctx.fillStyle = C.acento; ctx.beginPath(); ctx.roundRect(960 - wb / 2, 750 + 20 * (1 - k4), wb, 84, 42); ctx.fill();
+    ctx.fillStyle = '#1E2230'; ctx.fillText(s, 960, 794 + 20 * (1 - k4));
+  },
+});
+</script>
+</body>
+</html>

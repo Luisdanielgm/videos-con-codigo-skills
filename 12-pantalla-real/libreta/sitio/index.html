@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Libreta — tus notas, en orden (app de ejemplo)</title>
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+<!-- Web local de «Libreta», una app de notas INVENTADA para el ejemplo de la técnica 12 (se captura con capturar_web.py). -->
+<header class="barra">
+  <a class="marca" href="#"><span class="icono"></span>libreta</a>
+  <nav><a href="#funciones">Funciones</a><a href="#ayuda">Ayuda</a><a class="boton" href="app.html">Abrir Libreta</a></nav>
+</header>
+<main>
+  <section class="portada">
+    <div>
+      <p class="etiqueta">App de ejemplo · no existe</p>
+      <h1>Tus notas,<br><em>en orden.</em></h1>
+      <p class="bajada">Escribe una nota en un toque, tacha lo que ya hiciste y encuentra cualquier cosa en segundos.</p>
+      <a class="boton grande" href="app.html">Empezar una nota</a>
+    </div>
+    <div class="nota-muestra">
+      <h3>Lista del súper</h3>
+      <label><input type="checkbox" checked> <s>Pan</s></label>
+      <label><input type="checkbox" checked> <s>Leche</s></label>
+      <label><input type="checkbox"> Café</label>
+      <span class="chip">Casa</span>
+    </div>
+  </section>
+  <section id="funciones" class="funciones">
+    <article><h3>Listas con casillas</h3><p>Cada renglón se tacha con un toque, y la lista sabe cuánto falta.</p></article>
+    <article><h3>Recordatorios</h3><p>Te avisa a la hora que digas: «mañana a las 9:00».</p></article>
+    <article><h3>Búsqueda</h3><p>Escribe una palabra y aparecen todas las notas que la tienen.</p></article>
+    <article><h3>Etiquetas por color</h3><p>Casa, trabajo, viaje: cada nota con su color.</p></article>
+    <article><h3>Listas compartidas</h3><p>Lo que tacha uno, se tacha para todos.</p></article>
+    <article><h3>En el teléfono</h3><p>La misma libreta en la computadora y en el bolsillo.</p></article>
+  </section>
+  <section id="ayuda" class="pie">
+    <p>Libreta es una app de ejemplo para mostrar una técnica de video hecho con código. No existe ni se descarga.</p>
+  </section>
+</main>
+</body>
+</html>

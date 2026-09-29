@@ -5,8 +5,9 @@ description: 'Técnica 12. Comercial (27–35 s) con capturas REALES de la web d
 
 # Pantalla real (técnica 12)
 
-Antes: leer la skill base **`video-lanzamiento`**. No hay ejemplo publicado (los originales mostraban las
-webs de productos propios); un `index.html` de esta técnica tiene unas 80 líneas y casi todo es el guion.
+Antes: leer la skill base **`video-lanzamiento`**. Ejemplo: `12-pantalla-real/libreta/` (una app de notas
+inventada: su web local está en `sitio/` y las capturas en `capturas/`, sacadas con `capturar_web.py` sobre
+`servidor.py`). El `index.html` tiene unas 70 líneas y casi todo es el guion; **leerlo entero**.
 
 ## Qué hace falta
 

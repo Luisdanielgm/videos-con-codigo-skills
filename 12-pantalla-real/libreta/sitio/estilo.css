@@ -1,0 +1,41 @@
+/* Estilo de la web de ejemplo de «Libreta» (app inventada). */
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; background: #F5F1E8; color: #1E2230; }
+a { color: inherit; text-decoration: none; }
+.barra { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 64px; background: #F5F1E8; border-bottom: 1px solid #E4DED2; }
+.marca { display: flex; align-items: center; gap: 12px; font-family: Bahnschrift, sans-serif; font-size: 30px; font-weight: 700; }
+.icono { width: 26px; height: 34px; border-radius: 7px; background: #F0A43A; box-shadow: inset 6px 0 0 #1E2230; }
+nav { display: flex; align-items: center; gap: 34px; font-size: 18px; }
+.boton { background: #1E2230; color: #fff; padding: 12px 22px; border-radius: 999px; font-weight: 600; font-size: 17px; }
+.boton.grande { display: inline-block; margin-top: 30px; padding: 18px 34px; font-size: 20px; }
+.portada { display: grid; grid-template-columns: 1.2fr 1fr; gap: 60px; align-items: center; padding: 90px 64px 70px; }
+.etiqueta { display: inline-block; margin: 0 0 18px; padding: 6px 14px; border: 2px solid #F0A43A; border-radius: 999px; color: #b86f12; font-weight: 700; font-size: 15px; }
+h1 { margin: 0; font-family: Bahnschrift, sans-serif; font-size: 84px; line-height: 1.02; }
+h1 em { font-style: normal; color: #F0A43A; }
+.bajada { max-width: 560px; font-size: 22px; line-height: 1.5; color: #4b4f5c; }
+.nota-muestra, .n { background: #fff; border-radius: 22px; padding: 28px 30px; box-shadow: 0 10px 30px rgba(30,34,48,.08); }
+.nota-muestra h3 { margin: 0 0 16px; font-size: 26px; }
+label { display: flex; align-items: center; gap: 12px; margin: 10px 0; font-size: 20px; }
+input[type=checkbox] { width: 22px; height: 22px; accent-color: #F0A43A; }
+s { color: #8C8F9A; }
+.chip { display: inline-block; margin-left: 8px; padding: 4px 12px; border-radius: 999px; background: #F0A43A; font-size: 14px; font-weight: 700; vertical-align: middle; }
+.chip.azul { background: #7DA2C9; } .chip.verde { background: #8FBF8A; }
+.nota-muestra .chip { margin: 14px 0 0; }
+.funciones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; padding: 10px 64px 60px; }
+.funciones article { background: #fff; border-radius: 18px; padding: 26px 28px; }
+.funciones h3 { margin: 0 0 8px; font-size: 22px; } .funciones p { margin: 0; color: #4b4f5c; font-size: 17px; line-height: 1.5; }
+.pie { padding: 30px 64px 50px; color: #8C8F9A; font-size: 16px; border-top: 1px solid #E4DED2; }
+/* la app */
+.buscar { flex: 1; max-width: 560px; padding: 13px 20px; border-radius: 999px; background: #fff; color: #8C8F9A; font-size: 17px; }
+.cuerpo { display: grid; grid-template-columns: 240px 1fr; gap: 30px; padding: 30px 64px; }
+aside .titulo { margin: 18px 0 8px; color: #8C8F9A; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.et { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; font-size: 17px; }
+.et i { width: 12px; height: 12px; border-radius: 50%; } .et.activa { background: #fff; font-weight: 700; }
+.notas { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px; align-content: start; }
+.n h3 { margin: 0 0 12px; font-size: 23px; } .n p { color: #4b4f5c; font-size: 17px; } .meta { margin: 14px 0 0; font-size: 15px; color: #8C8F9A; }
+@media (max-width: 700px) {
+  .barra { padding: 16px 20px; } nav a:not(.boton) { display: none; } .buscar { display: none; }
+  .portada { grid-template-columns: 1fr; padding: 40px 20px; gap: 30px; } h1 { font-size: 54px; } .bajada { font-size: 19px; }
+  .funciones { grid-template-columns: 1fr; padding: 10px 20px 40px; } .pie { padding: 24px 20px 40px; }
+  .cuerpo { grid-template-columns: 1fr; padding: 20px; } aside { display: none; } .notas { grid-template-columns: 1fr; }
+}

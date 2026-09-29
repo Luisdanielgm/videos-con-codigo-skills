@@ -1,0 +1,26 @@
+{
+  "bpm": 100,
+  "compases": 13,
+  "progresion": ["F", "Dm", "Bb", "C"],
+  "secciones": [
+    {"desde": 0, "hasta": 1, "partes": ["pad", "arpegio"]},
+    {"desde": 1, "hasta": 11, "partes": ["bombo", "hat", "bajo", "pad", "arpegio"]},
+    {"desde": 11, "hasta": 12, "partes": ["bombo", "hat", "caja", "bajo", "pad", "arpegio"]},
+    {"desde": 12, "hasta": 13, "partes": ["pad"]}
+  ],
+  "silencio_antes": [44],
+  "efectos": [
+    {"tipo": "whoosh", "pulso": 4, "vol": 0.7},
+    {"tipo": "whoosh", "pulso": 7.5, "vol": 0.5},
+    {"tipo": "whoosh", "pulso": 11, "vol": 0.5},
+    {"tipo": "clic", "pulso": 16},
+    {"tipo": "whoosh", "pulso": 16.3, "vol": 0.5},
+    {"tipo": "whoosh", "pulso": 18.5, "vol": 0.5},
+    {"tipo": "whoosh", "pulso": 23, "vol": 0.5},
+    {"tipo": "whoosh", "pulso": 28, "vol": 0.5},
+    {"tipo": "whoosh", "pulso": 33, "vol": 0.7},
+    {"tipo": "deslizar", "pulso": 35.5, "vol": 0.5},
+    {"tipo": "riser", "pulso": 44, "pulsos": 4},
+    {"tipo": "impacto", "pulso": 44}
+  ]
+}

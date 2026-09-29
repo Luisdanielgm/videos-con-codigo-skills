@@ -38,7 +38,7 @@ requirements.txt            el entorno de Python principal
 | 9 | Comercial: objetos y datos del producto en 3D | `video-producto-3d` | `09-producto-3d/libreta/` (app de notas inventada) |
 | 10 | Comercial: partículas y tipografía cinética | `video-particulas` | `10-particulas/libreta/` (app de notas inventada) |
 | 11 | Comercial: globo, rutas y gráficos que se calculan | `video-datos-mapa` | — |
-| 12 | Comercial: capturas reales de la web en laptop y teléfono | `video-pantalla-real` | — |
+| 12 | Comercial: capturas reales de la web en laptop y teléfono | `video-pantalla-real` | `12-pantalla-real/libreta/` (app de notas inventada) |
 | 13 | Showreel vertical para reels | `video-showreel` | `13-showreel/libreta/` (app de notas inventada) |
 | 14 | Comercial con HyperFrames (storyboards y escenas) | `video-hyperframes` | — |
 | 15 | La app real grabada del teléfono (adb) | `video-app-real` | — |

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Libreta — mis notas (app de ejemplo)</title>
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body class="app">
+<!-- La pantalla de la app inventada, con notas de ejemplo (nada de datos de personas reales). -->
+<header class="barra">
+  <a class="marca" href="index.html"><span class="icono"></span>libreta</a>
+  <div class="buscar">🔍&nbsp; Buscar en tus notas</div>
+  <a class="boton" href="#">+ Nueva nota</a>
+</header>
+<div class="cuerpo">
+  <aside>
+    <p class="titulo">Etiquetas</p>
+    <a class="et activa"><i style="background:#F0A43A"></i>Todas</a>
+    <a class="et"><i style="background:#F0A43A"></i>Casa</a>
+    <a class="et"><i style="background:#7DA2C9"></i>Trabajo</a>
+    <a class="et"><i style="background:#8FBF8A"></i>Viaje</a>
+    <p class="titulo">Recordatorios</p>
+    <a class="et">🔔 Mañana, 9:00</a>
+  </aside>
+  <section class="notas">
+    <article class="n">
+      <h3>Lista del súper <span class="chip">Casa</span></h3>
+      <label><input type="checkbox" checked> <s>Pan</s></label>
+      <label><input type="checkbox" checked> <s>Leche</s></label>
+      <label><input type="checkbox"> Café</label>
+      <p class="meta">🔔 Mañana, 9:00 · compartida con Ana</p>
+    </article>
+    <article class="n">
+      <h3>Reunión del lunes <span class="chip azul">Trabajo</span></h3>
+      <p>Revisar el presupuesto y la fecha de entrega.</p>
+      <label><input type="checkbox"> Mandar el resumen</label>
+    </article>
+    <article class="n">
+      <h3>Ideas para el viaje <span class="chip verde">Viaje</span></h3>
+      <p>Playa por la mañana, museo si llueve.</p>
+      <label><input type="checkbox" checked> <s>Reservar</s></label>
+      <label><input type="checkbox"> Protector solar</label>
+    </article>
+    <article class="n">
+      <h3>Libros pendientes</h3>
+      <label><input type="checkbox"> Uno de viajes</label>
+      <label><input type="checkbox"> Uno de cocina</label>
+    </article>
+  </section>
+</div>
+</body>
+</html>
