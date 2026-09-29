@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Libreta — lanzamiento (app de ejemplo)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #F5F1E8; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="pulsos.js"></script>
+<script src="../../herramientas/movimiento.js"></script>
+<script src="../../herramientas/reproductor.js"></script>
+<script>
+// Técnica 8 (ejemplo neutro): UNA sola forma que nunca se corta. Es el mismo elemento de principio a fin: cambia
+// tamaño, radio y color con resortes mientras su contenido se cambia con un desenfoque corto. Un cursor maneja cada
+// cambio; la cámara se acerca para que cada estado llene el cuadro; el último cuadro es el primero (bucle).
+// «Libreta» es una app de notas INVENTADA para mostrar la técnica (lo dice al final): botón → nota que se escribe →
+// lista con casillas → etiqueta → búsqueda → (inundación) recordatorio → lista compartida → punto → (inundación en
+// el golpe) logo → botón. Música calculada por musica.py sobre la misma grilla (112 BPM, 13 compases).
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const M = Movimiento, { clamp, lerp, tramo, escalon, resorte } = M;
+const PU = window.PULSOS, P = M.pulsos(PU.bpm, PU.inicio);
+const T = b => P.t(b);
+const DUR = T(52);
+
+const C = {
+  papel: '#F5F1E8', tinta: '#1E2230', ambar: '#F0A43A', blanco: '#FFFFFF', gris: '#8C8F9A', linea: '#E4DED2',
+  off: '#CFC8BA', suave: '#F1ECE2',
+};
+const UI = '"Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif';
+const MARCA = 'Bahnschrift, "Segoe UI Variable Display", sans-serif';     // variable: peso 300–700
+
+// ───────────── ayudantes ─────────────
+function hex(c) { const n = parseInt(c.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+function mezclar(a, b, k) { const x = hex(a), y = hex(b); return `rgb(${x.map((v, i) => Math.round(lerp(v, y[i], k))).join(',')})`; }
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, Math.max(0, w), Math.max(0, h), Math.max(0, Math.min(r, w / 2, h / 2))); }
+function texto(s, x, y, tam, peso = 600, color = C.tinta, alinear = 'left', fuente = UI) {
+  ctx.font = `${peso} ${tam}px ${fuente}`; ctx.fillStyle = color; ctx.textAlign = alinear; ctx.textBaseline = 'middle';
+  ctx.fillText(s, x, y);
+}
+function ancho(s, tam, peso = 600, fuente = UI) { ctx.font = `${peso} ${tam}px ${fuente}`; return ctx.measureText(s).width; }
+const vis = (t, a, b, ent = .18, sal = .16) => Math.min(clamp((t - T(a)) / ent), clamp((T(b) - t) / sal));
+// Contenido que cambia dentro de la forma: entra y sale con un desenfoque corto (no con un fundido largo).
+function capa(t, a, b, dibujar) {
+  const k = vis(t, a, b);
+  if (k <= 0) return;
+  ctx.save(); ctx.globalAlpha *= k; if (k < 1) ctx.filter = `blur(${(1 - k) * 10}px)`;
+  dibujar(k); ctx.restore();
+}
+// Texto que sube desde una línea de máscara (no aparece por opacidad).
+function sube(t, b, s, x, y, tam, peso, color, alinear = 'center', fuente = UI) {
+  const k = escalon(t - T(b), 2.6, .9);
+  if (k <= 0) return;
+  ctx.save(); ctx.beginPath(); ctx.rect(x - 2000, y - tam, 4000, tam * 1.7); ctx.clip();
+  texto(s, x, y + tam * 1.3 * (1 - k), tam, peso, color, alinear, fuente); ctx.restore();
+}
+// Texto que se escribe letra por letra entre dos pulsos, con su cursor de texto (que se va en el pulso `fin`,
+// cuando empieza el renglón siguiente; si no, parpadea un momento al terminar).
+function escribe(t, a, b, s, x, y, tam, peso, color, fin = null) {
+  const n = Math.floor(clamp((t - T(a)) / (T(b) - T(a))) * s.length), parte = s.slice(0, n);
+  texto(parte, x, y, tam, peso, color);
+  const hasta = fin == null ? T(b) + .6 : T(fin);
+  if (t > T(a) - .2 && (n < s.length || Math.floor(t * 2.5) % 2 === 0) && t < hasta) { ctx.fillStyle = C.ambar; ctx.fillRect(x + ancho(parte, tam, peso) + 3, y - tam * .55, 3, tam * 1.1); }
+}
+function casilla(x, y, k, lleno) {                  // una casilla que se tilda: se llena y se dibuja el ✓
+  ctx.lineWidth = 4; ctx.strokeStyle = lleno > 0 ? C.ambar : C.off; ctx.fillStyle = C.ambar;
+  rr(x - 18 * k, y - 18 * k, 36 * k, 36 * k, 9); ctx.stroke();
+  if (lleno > 0) {
+    ctx.globalAlpha *= 1; rr(x - 18, y - 18, 36, 36, 9); ctx.fill();
+    ctx.strokeStyle = C.blanco; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath();
+    ctx.moveTo(x - 9, y); ctx.lineTo(lerp(x - 9, x - 2, clamp(lleno * 2)), lerp(y, y + 8, clamp(lleno * 2)));
+    if (lleno > .5) ctx.lineTo(lerp(x - 2, x + 10, (lleno - .5) * 2), lerp(y + 8, y - 8, (lleno - .5) * 2));
+    ctx.stroke();
+  }
+}
+
+// ───────────── la forma única ─────────────
+// Cada clave fija el destino de algunas propiedades en un pulso; cada propiedad es la suma de un resorte por
+// cambio (función pura del tiempo). El primer valor es el de reposo: en t = 0 no se mueve nada.
+const X = 960, Y = 540;
+const CLAVES = [
+  [0, { w: 400, h: 112, r: 56, col: C.tinta }],                        // «+ Nueva nota»
+  [2, { w: 370, h: 104 }],                                             // el clic la aprieta
+  [2.4, { w: 760, h: 560, r: 36, col: C.blanco }],                     // la nota que se escribe
+  [8, { w: 760, h: 620 }],                                             // lista con casillas (golpe)
+  [13, { w: 300, h: 96, r: 48, col: C.ambar }],                        // etiqueta «Casa»
+  [16, { w: 1000, h: 112, r: 56, col: C.blanco }],                     // búsqueda
+  [22, { w: 3400, h: 2100, r: 90, col: C.tinta }],                     // inundación
+  [22.75, { w: 720, h: 360, r: 36, col: C.blanco }],                   // recordatorio
+  [28, { w: 760, h: 560, r: 36 }],                                     // lista compartida
+  [34, { w: 64, h: 64, r: 32, col: C.tinta }],                         // se junta en un punto (tensión)
+  [36, { w: 3400, h: 2100, r: 90 }],                                   // inundación en el golpe: el logo
+  [49.2, { w: 400, h: 112, r: 56 }],                                   // vuelve a ser el botón (bucle)
+];
+const PROPS = {};
+{
+  const actual = {};
+  for (const [b, c] of CLAVES) for (const [k, v] of Object.entries(c)) {
+    if (k === 'col') { (PROPS.col ||= []).push([b, actual.col ?? v, v]); actual.col = v; continue; }
+    (PROPS[k] ||= []).push([T(b), actual[k] ?? v, v]);
+    actual[k] = v;
+  }
+}
+function forma(t) {
+  const S = { x: X, y: Y };
+  for (const k of ['w', 'h', 'r']) S[k] = Math.max(0, resorte(t, PROPS[k], { hz: 2.7, amort: .8 }));
+  let col = PROPS.col[0][2];
+  for (const [b, desde, hasta] of PROPS.col) if (t >= T(b)) col = mezclar(desde, hasta, M.curva.suave(clamp((t - T(b)) / .3)));
+  S.col = col;
+  return S;
+}
+
+// ───────────── cámara ─────────────
+const ZOOM = [[0, 1.75], [2.4, 1.3], [7.8, 1.22], [12.8, 1.9], [15.8, 1.3], [21.8, 1], [22.75, 1.4], [27.8, 1.25],
+              [33.6, 2.4], [35.8, 1], [49, 1.75]];
+const ZK = ZOOM.map(([b, z], i) => [T(b), i ? ZOOM[i - 1][1] : z, z]);
+const zoom = t => resorte(t, ZK, { hz: 1.25, amort: .92 });
+const pantalla = (x, y, z) => [960 + (x - X) * z, 540 + (y - Y) * z];
+
+// ───────────── cursor (en pantalla: siempre del mismo tamaño) ─────────────
+const ITEM_Y = i => Y - 110 + i * 100, ITEM_X = X - 300;
+const CUR = [[0, 1560, 860], [1, 1050, 560], [3, 1260, 780], [9.6, ITEM_X + 4, ITEM_Y(0) + 2], [10.9, ITEM_X + 4, ITEM_Y(0) + 2],
+             [11.1, ITEM_X + 4, ITEM_Y(1) + 2], [11.9, ITEM_X + 4, ITEM_Y(1) + 2], [12.1, ITEM_X + 4, ITEM_Y(2) + 2],
+             [13, 1300, 800], [23.4, 1200, 800], [24.3, X + 232, Y + 92], [25.9, X + 232, Y + 92], [26.4, 1300, 820]];
+const CLICS = [2, 10.5, 11.5, 12.5, 25];
+const ARRASTRES = [];
+const CUR_VIS = [[.6, 3], [9.4, 12.9], [23.4, 26.2]];
+const CX = [], CY = [];
+CUR.forEach(([b, x, y], i) => { const [px, py] = i ? CUR[i - 1].slice(1) : [x, y]; CX.push([T(b), px, x]); CY.push([T(b), py, y]); });
+function cursor(t, z) {
+  const v = Math.max(...CUR_VIS.map(([a, b]) => vis(t, a, b, .2, .25)));
+  if (v <= 0) return;
+  const [x, y] = pantalla(resorte(t, CX, { hz: 1.9, amort: .9 }), resorte(t, CY, { hz: 1.9, amort: .9 }), z);
+  let esc = 1;
+  for (const b of CLICS) { const d = t - T(b); if (d > -.1 && d < .4) esc = Math.min(esc, 1 - .2 * Math.exp(-Math.abs(d) * 12)); }
+  for (const [a, b] of ARRASTRES) if (t > T(a) && t < T(b)) esc = Math.min(esc, .84);
+  ctx.save(); ctx.globalAlpha = v; ctx.translate(x, y); ctx.scale(esc * 1.6, esc * 1.6);
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 30); ctx.lineTo(7.5, 23); ctx.lineTo(13, 35); ctx.lineTo(18, 33); ctx.lineTo(12.5, 21.5); ctx.lineTo(22, 21.5); ctx.closePath();
+  ctx.fillStyle = C.tinta; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.restore();
+}
+
+// ───────────── contenido de cada estado (dentro de la forma, en coordenadas del mundo) ─────────────
+function boton(t) {
+  const d = () => { texto('+', X - 120, Y, 50, 500, C.ambar, 'center'); texto('Nueva nota', X + 18, Y + 2, 42, 650, C.blanco, 'center'); };
+  capa(t, -1, 2.35, d); capa(t, 50.4, 53, d);
+}
+const LISTA = ['Pan', 'Leche', 'Café'];
+function nota(t) {
+  capa(t, 2.6, 7.9, () => {
+    escribe(t, 3, 5.2, 'Lista del súper', X - 320, Y - 200, 52, 700, C.tinta, 5.4);
+    ctx.fillStyle = C.linea; ctx.fillRect(X - 320, Y - 150, 640 * tramo(t, T(3), T(4), 'expo'), 2);
+    LISTA.forEach((s, i) => escribe(t, 5.4 + i * .7, 5.9 + i * .7, s, X - 320, Y - 80 + i * 80, 40, 500, C.tinta, i < 2 ? 6.1 + i * .7 : 8));
+  });
+}
+function lista(t) {
+  capa(t, 8.1, 12.95, () => {
+    texto('Lista del súper', X - 320, Y - 220, 52, 700, C.tinta);
+    LISTA.forEach((s, i) => {
+      const k = escalon(t - T(8.5 + i * .5), 3, .75), lleno = tramo(t, T(10.5 + i), T(10.5 + i) + .25, 'cubica');
+      if (k <= 0) return;
+      ctx.save(); casilla(ITEM_X, ITEM_Y(i), k, lleno); ctx.restore();
+      const col = mezclar(C.tinta, C.gris, lleno);
+      texto(s, ITEM_X + 44, ITEM_Y(i) + 1, 42, 500, col);
+      if (lleno > 0) { ctx.fillStyle = C.gris; ctx.fillRect(ITEM_X + 44, ITEM_Y(i) + 2, ancho(s, 42, 500) * clamp(lleno * 1.4), 3); }
+    });
+  });
+}
+function etiqueta(t) {
+  capa(t, 13.2, 15.9, () => {
+    ctx.fillStyle = C.tinta; ctx.beginPath(); ctx.arc(X - 70, Y, 12, 0, 7); ctx.fill();
+    texto('Casa', X + 16, Y + 2, 44, 700, C.tinta, 'center');
+  });
+}
+function busqueda(t) {
+  capa(t, 16.2, 21.8, () => {
+    ctx.strokeStyle = C.gris; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(X - 432, Y - 4, 16, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.moveTo(X - 420, Y + 8); ctx.lineTo(X - 406, Y + 22); ctx.stroke();
+    escribe(t, 17, 18.3, 'súper', X - 380, Y + 1, 40, 500, C.tinta);
+  });
+}
+function busquedaFuera(t) {              // los resultados salen debajo de la barra (fuera de la forma)
+  capa(t, 18.8, 21.8, () => {
+    [['Lista del súper', 'Casa'], ['Súper del sábado', null]].forEach(([s, chip], i) => {
+      const k = escalon(t - T(19 + i * .5), 3, .75), y0 = Y + 100 + i * 108, x0 = X - 500;
+      if (k <= 0) return;
+      ctx.save(); ctx.globalAlpha *= clamp(k * 2); ctx.translate(x0, y0 + 42); ctx.scale(k, k); ctx.translate(-x0, -(y0 + 42));
+      ctx.fillStyle = C.blanco; rr(x0, y0, 1000, 84, 28); ctx.fill();
+      const j = s.toLowerCase().indexOf('súper'), a = s.slice(0, j), m = s.slice(j, j + 5), c = s.slice(j + 5);
+      let x = x0 + 36;
+      texto(a, x, y0 + 43, 36, 500, C.tinta); x += ancho(a, 36, 500);
+      const wm = ancho(m, 36, 700); ctx.fillStyle = 'rgba(240,164,58,.28)'; rr(x - 3, y0 + 22, wm + 6, 42, 8); ctx.fill();
+      texto(m, x, y0 + 43, 36, 700, C.tinta); x += wm; texto(c, x, y0 + 43, 36, 500, C.tinta);
+      if (chip) { const wc = ancho(chip, 26, 700) + 40; ctx.fillStyle = C.ambar; rr(x0 + 1000 - 30 - wc, y0 + 22, wc, 42, 21); ctx.fill(); texto(chip, x0 + 1000 - 30 - wc / 2, y0 + 44, 26, 700, C.tinta, 'center'); }
+      ctx.restore();
+    });
+  });
+}
+function recordatorio(t) {
+  capa(t, 23, 27.8, () => {
+    // campana
+    const bamb = t > T(26.5) ? Math.sin((t - T(26.5)) * 22) * .25 * Math.exp(-(t - T(26.5)) * 3) : 0;
+    ctx.save(); ctx.translate(X - 250, Y - 60); ctx.rotate(bamb);
+    ctx.fillStyle = C.ambar; ctx.beginPath(); ctx.moveTo(-26, 18); ctx.quadraticCurveTo(-24, -28, 0, -30); ctx.quadraticCurveTo(24, -28, 26, 18); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 26, 7, 0, 7); ctx.fill(); ctx.restore();
+    texto('Recordarme', X - 190, Y - 70, 46, 700, C.tinta);
+    texto('Mañana, 9:00', X - 190, Y - 16, 34, 500, C.gris);
+    ctx.fillStyle = C.linea; ctx.fillRect(X - 300, Y + 40, 600, 2);
+    texto('Avisarme', X - 300, Y + 92, 36, 500, C.tinta);
+    const k = tramo(t, T(25), T(25.6), 'suave'), tx = X + 190, tw = 120;
+    ctx.fillStyle = mezclar(C.off, C.ambar, k); rr(tx, Y + 62, tw, 60, 30); ctx.fill();
+    ctx.fillStyle = C.blanco; ctx.beginPath(); ctx.arc(lerp(tx + 30, tx + tw - 30, k), Y + 92, 24, 0, 7); ctx.fill();
+  });
+}
+function recordatorioFuera(t) {         // el aviso del teléfono baja desde arriba
+  capa(t, 26.5, 27.8, () => {
+    const k = escalon(t - T(26.5), 2.8, .8), s = 'Libreta · Lista del súper, mañana a las 9:00', w = ancho(s, 30, 600) + 70;
+    const y0 = lerp(Y - 380, Y - 290, k);
+    ctx.save(); ctx.globalAlpha *= clamp(k * 2);
+    ctx.fillStyle = C.blanco; rr(X - w / 2, y0, w, 74, 37); ctx.fill();
+    ctx.fillStyle = C.ambar; ctx.beginPath(); ctx.arc(X - w / 2 + 38, y0 + 37, 11, 0, 7); ctx.fill();
+    texto(s, X - w / 2 + 60, y0 + 38, 30, 600, C.tinta); ctx.restore();
+  });
+}
+function compartida(t) {
+  capa(t, 28.2, 33.8, () => {
+    texto('Lista del súper', X - 320, Y - 200, 52, 700, C.tinta);
+    [['A', '#7DA2C9', 29], ['T', C.tinta, 29.5]].forEach(([l, c, b], i) => {
+      const k = escalon(t - T(b), 3, .72); if (k <= 0) return;
+      ctx.save(); ctx.translate(X + 230 + i * 62, Y - 200); ctx.scale(k, k);
+      ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, 0, 30, 0, 7); ctx.fill(); ctx.strokeStyle = C.blanco; ctx.lineWidth = 4; ctx.stroke();
+      texto(l, 0, 2, 28, 700, C.blanco, 'center'); ctx.restore();
+    });
+    LISTA.forEach((s, i) => {
+      const y = Y - 80 + i * 100, lleno = i < 2 ? 1 : tramo(t, T(31), T(31) + .25, 'cubica');
+      ctx.save(); casilla(ITEM_X, y, 1, lleno); ctx.restore();
+      texto(s, ITEM_X + 44, y + 1, 42, 500, mezclar(C.tinta, C.gris, lleno));
+      if (lleno > 0) { ctx.fillStyle = C.gris; ctx.fillRect(ITEM_X + 44, y + 2, ancho(s, 42, 500) * clamp(lleno * 1.4), 3); }
+      if (i === 2) {                                       // quién lo tachó
+        const k = escalon(t - T(31.2), 3, .75);
+        if (k > 0) { ctx.save(); ctx.globalAlpha *= clamp(k * 2); texto('Ana lo tachó', ITEM_X + 180, y + 2, 30, 600, '#7DA2C9'); ctx.restore(); }
+      }
+    });
+  });
+}
+function logo(t) {
+  capa(t, 36.3, 49.1, () => {
+    // la marca: una libreta (tapa con anillos) y el nombre con peso variable
+    const k = escalon(t - T(36.3), 2, .82), peso = Math.round(lerp(300, 700, tramo(t, T(37), T(38.5), 'expo')));
+    ctx.save(); ctx.translate(X - 250, Y - 70); ctx.scale(k, k);
+    ctx.fillStyle = C.ambar; rr(-54, -70, 108, 140, 18); ctx.fill();
+    ctx.fillStyle = C.tinta; for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(-54, -45 + i * 30, 9, 0, 7); ctx.fill(); }
+    ctx.fillStyle = 'rgba(30,34,48,.35)'; for (let i = 0; i < 3; i++) ctx.fillRect(-24, -30 + i * 28, 52, 6);
+    ctx.restore();
+    sube(t, 36.6, 'libreta', X - 170, Y - 64, 150, peso, C.blanco, 'left', MARCA);
+    sube(t, 39, 'Tus notas, en orden.', X, Y + 110, 54, 500, C.blanco, 'center', MARCA);
+    const u = escalon(t - T(41), 2.6, .82);
+    if (u > 0) {
+      const s = 'App de ejemplo: no existe', wu = ancho(s, 32, 600) + 64;
+      ctx.save(); ctx.globalAlpha *= clamp(u * 2); ctx.translate(X, Y + 215); ctx.scale(u, u);
+      ctx.strokeStyle = C.ambar; ctx.lineWidth = 3; rr(-wu / 2, -32, wu, 64, 32); ctx.stroke();
+      texto(s, 0, 2, 32, 600, C.ambar, 'center'); ctx.restore();
+    }
+  });
+}
+// Rótulos (una línea, suben desde su máscara; se van con el estado). [desde, hasta, texto, arriba]
+const ROTULOS = [
+  [3.2, 7.7, 'Escribe una nota en un toque'],
+  [8.6, 12.8, 'Listas con casillas'],
+  [13.4, 15.8, 'Etiquetas por color'],
+  [16.6, 21.6, 'Encuentra cualquier nota', true],
+  [23.4, 27.6, 'Recordatorios a la hora que digas'],
+  [28.6, 33.6, 'Compártela: se tacha para todos'],
+];
+function rotulos(t, S) {
+  for (const [a, b, s, arriba] of ROTULOS) capa(t, a, b, () => sube(t, a, s, X, arriba ? Y - S.h / 2 - 70 : Y + S.h / 2 + 70, 40, 600, C.tinta));
+}
+
+// ───────────── el cuadro ─────────────
+function render(t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = C.papel; ctx.fillRect(0, 0, 1920, 1080);
+  const z = zoom(t);
+  ctx.translate(960, 540); ctx.scale(z, z); ctx.translate(-X, -Y);
+  const S = forma(t);
+  // sombra suave de papel (no brillo) debajo de la forma
+  ctx.save(); ctx.fillStyle = 'rgba(30,34,48,.08)'; rr(S.x - S.w / 2, S.y - S.h / 2 + 10, S.w, S.h, S.r); ctx.fill(); ctx.restore();
+  ctx.fillStyle = S.col; rr(S.x - S.w / 2, S.y - S.h / 2, S.w, S.h, S.r); ctx.fill();
+  ctx.save(); ctx.clip();
+  for (const f of [boton, nota, lista, etiqueta, busqueda, recordatorio, compartida, logo]) { ctx.save(); f(t, S); ctx.restore(); }
+  ctx.restore();
+  for (const f of [busquedaFuera, recordatorioFuera, rotulos]) { ctx.save(); f(t, S); ctx.restore(); }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  cursor(t, z);
+}
+
+document.fonts.ready.then(() =>
+  Reproductor.iniciar({ canvas: cv, render, duracion: DUR, audio: 'musica.wav', desenfoque: 4 }));
+</script>
+</body>
+</html>

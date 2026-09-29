@@ -6,8 +6,9 @@ description: 'Técnica 8. Comercial de app (25–30 s) donde UNA sola forma reco
 # Forma única que se transforma (técnica 8)
 
 Antes: leer la skill base **`video-lanzamiento`** (material verdadero, plan en pulsos, música, reglas,
-dirección). No hay ejemplo publicado (el original era el comercial de una app propia); la estructura es
-`08-lanzamiento/<producto>/index.html` + `musica.json` + `pulsos.js` + `mezcla.json`.
+dirección). Ejemplo: `08-lanzamiento/libreta/` (una app de notas inventada, con música calculada por
+`musica.py`: `index.html` + `musica.json` + `pulsos.js`; **leerlo entero**). Con canción real se suma `mezcla.json`
+(`pista.py`).
 Referencia: el prompt de motion design de @twoclipping en X (una forma que nunca se corta, cursor con clics y
 arrastres reales, cámara que acerca, el último cuadro igual al primero).
 
