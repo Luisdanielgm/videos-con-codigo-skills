@@ -46,6 +46,7 @@ GRUPOS = [
     ("04-explicativo-narrado/red-neuronal/*", None),
     ("05-shader-webgl2/el-faro/*", None),           # cuento original del proyecto (29-sep)
     ("08-lanzamiento/libreta/*", None),             # app de notas inventada (29-sep)
+    ("10-particulas/libreta/*", None),
     ("17-archivo/revolucion-industrial/*", None),
     ("18-epica-lineal/historia-del-vuelo/*", None),
     ("18-epica-lineal/historia-del-vuelo/efectos/*", None),

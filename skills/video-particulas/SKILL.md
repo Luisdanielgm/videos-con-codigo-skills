@@ -5,10 +5,10 @@ description: 'Técnica 10. Comercial (20–25 s) con miles de partículas que pa
 
 # Partículas y tipografía cinética (técnica 10)
 
-Antes: leer la skill base **`video-lanzamiento`**. No hay ejemplo publicado (el original era el comercial de
-un producto propio); la estructura es `10-particulas/<producto>/index.html` + `musica.json` + `pulsos.js` +
-el PNG del logo. La técnica 20 (`20-generativo/semilla/`) usa el mismo `puntosDeTexto` y sirve de referencia de
-código para las partículas.
+Antes: leer la skill base **`video-lanzamiento`**. Ejemplo: `10-particulas/libreta/` (una app de notas inventada:
+`index.html` + `musica.json` + `pulsos.js`, música calculada con `musica.py`; **leerlo entero**). Las partículas son
+el hilo de toda la toma y los rótulos suben desde su máscara. Con un logo de verdad se suma su PNG, muestreado por
+color. La técnica 20 (`20-generativo/semilla/`) usa el mismo `puntosDeTexto`.
 
 ## Qué hace falta
 

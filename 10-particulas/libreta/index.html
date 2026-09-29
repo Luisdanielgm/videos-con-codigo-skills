@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Libreta — partículas (app de ejemplo)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #171a24; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="pulsos.js"></script>
+<script src="../../herramientas/movimiento.js"></script>
+<script src="../../herramientas/reproductor.js"></script>
+<script>
+// Técnica 10 (ejemplo neutro): 9.000 partículas son el hilo de toda la toma. Pasan de forma en forma sin cortes:
+// esfera → «Tus ideas» → la libreta (golpe) → una lista con casillas que se tildan → una campana que suena → una
+// lupa → el nombre (golpe) con perspectiva calculada a mano. Nada entra por opacidad ni hay tarjetas encima: los
+// rótulos suben desde su máscara. «Libreta» es una app de notas INVENTADA (lo dice al final).
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const M = Movimiento, { clamp, lerp, tramo, escalon } = M;
+const P = M.pulsos(PULSOS.bpm, PULSOS.inicio), T = b => P.t(b);
+const DUR = T(40) + 1;
+const W = 1920, H = 1080, N = 9000;
+const C = { fondo: '#171a24', ambar: '#F0A43A', crema: '#F5F1E8', azul: '#7DA2C9', gris: '#8C8F9A', tenue: '#3a3f52' };
+const FUENTE = '"Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif';
+const MARCA = 'Bahnschrift, "Segoe UI Variable Display", sans-serif';
+const hex = c => { const n = parseInt(c.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+const az = M.azar(5), RND = Array.from({ length: N }, () => [az(), az(), az(), az()]);
+
+// ───────────── formas (cada una: N destinos [x, y, r, g, b]) ─────────────
+function degradado(x, x0, x1) {                    // ámbar → crema, a lo ancho
+  const k = clamp((x - x0) / (x1 - x0)), a = hex(C.ambar), b = hex(C.crema);
+  return a.map((v, i) => lerp(v, b[i], k));
+}
+function deTexto(texto, fuente, cx, cy) {
+  const pts = M.puntosDeTexto(texto, fuente, N, 3);
+  const xs = pts.map(p => p[0]), x0 = Math.min(...xs) + cx, x1 = Math.max(...xs) + cx;
+  return pts.map(([x, y]) => [cx + x, cy + y, ...degradado(cx + x, x0, x1)]);
+}
+function deContornos(figuras, color) {            // figuras: listas de puntos; las N partículas se reparten por largo
+  const largos = figuras.map(f => f.reduce((a, p, i) => a + Math.hypot(p[0] - f[(i + 1) % f.length][0], p[1] - f[(i + 1) % f.length][1]), 0));
+  const total = largos.reduce((a, b) => a + b, 0), out = [];
+  figuras.forEach((f, k) => {
+    const n = k === figuras.length - 1 ? N - out.length : Math.round(N * largos[k] / total);
+    for (let i = 0; i < n; i++) { const p = f[Math.floor(i / n * f.length)], j = RND[out.length % N]; out.push([p[0] + (j[0] - .5) * 6, p[1] + (j[1] - .5) * 6, ...(typeof color === 'function' ? color(k, p) : hex(color))]); }
+  });
+  return out;
+}
+const segmento = (a, b, n = 80) => Array.from({ length: n }, (_, i) => [lerp(a[0], b[0], i / n), lerp(a[1], b[1], i / n)]);
+const arco = (cx, cy, r, a0, a1, n = 120) => Array.from({ length: n }, (_, i) => { const a = lerp(a0, a1, i / (n - 1)); return [cx + Math.cos(a) * r, cy + Math.sin(a) * r]; });
+
+const F = {};
+const CX = 960, CY = 470;
+const CAJAS = [0, 1, 2].map(i => [CX - 250, CY - 150 + i * 150]);
+function prepararFormas() {
+  F.palabras = deTexto('Tus ideas', `800 230px ${MARCA}`, CX, CY);
+  // la libreta: tapa, anillos a la izquierda y renglones
+  const tapa = [M.forma.rectRedondo(CX, CY, 440, 560, 40, 400)];
+  for (let i = 0; i < 6; i++) tapa.push(M.forma.circulo(CX - 220, CY - 200 + i * 80, 22, 60));
+  for (let i = 0; i < 4; i++) tapa.push(segmento([CX - 110, CY - 120 + i * 80], [CX + 150 - (i === 3 ? 120 : 0), CY - 120 + i * 80], 70));
+  F.libreta = deContornos(tapa, k => k === 0 ? hex(C.ambar) : k <= 6 ? hex(C.crema) : hex(C.gris));
+  // la lista: tres casillas con su renglón
+  const lista = [];
+  CAJAS.forEach(([x, y]) => { lista.push(M.forma.rectRedondo(x, y, 70, 70, 16, 120)); lista.push(segmento([x + 80, y], [x + 420, y], 90)); });
+  F.lista = deContornos(lista, k => k % 2 ? hex(C.gris) : hex(C.ambar));
+  // la campana (se mueve: se arma en destino())
+  const camp = [arco(CX, CY - 40, 150, Math.PI, 2 * Math.PI, 160), segmento([CX - 150, CY - 40], [CX - 185, CY + 120], 60),
+                segmento([CX + 150, CY - 40], [CX + 185, CY + 120], 60), segmento([CX - 215, CY + 130], [CX + 215, CY + 130], 110),
+                M.forma.circulo(CX, CY + 175, 30, 80), M.forma.circulo(CX, CY - 205, 16, 50)];
+  F.campana = deContornos(camp, k => k === 4 ? hex(C.crema) : hex(C.ambar));
+  // la lupa
+  F.lupa = deContornos([M.forma.circulo(CX - 40, CY - 40, 170, 360), M.forma.circulo(CX - 40, CY - 40, 150, 320),
+                        segmento([CX + 80, CY + 80], [CX + 240, CY + 240], 120), segmento([CX + 100, CY + 60], [CX + 260, CY + 220], 120)],
+                       k => k < 2 ? hex(C.crema) : hex(C.ambar));
+  F.nombre = deTexto('libreta', `700 250px ${MARCA}`, CX + 120, CY - 20);
+}
+// esfera que gira (perspectiva calculada a mano)
+function esfera(t) {
+  const out = [], ang = t * .35, cy = Math.cos(ang), sy = Math.sin(ang), inc = .35, ci = Math.cos(inc), si = Math.sin(inc);
+  for (let i = 0; i < N; i++) {
+    const y = 1 - 2 * (i + .5) / N, r = Math.sqrt(1 - y * y), a = i * 2.39996;
+    let x = Math.cos(a) * r, z = Math.sin(a) * r, yy = y;
+    [x, z] = [x * cy - z * sy, x * sy + z * cy];
+    [yy, z] = [yy * ci - z * si, yy * si + z * ci];
+    const k = 3.2 / (3.2 + z), R = 320 * (1 + .04 * Math.sin(t * 1.3 + y * 6));
+    const c = degradado(x, -1, 1), luz = .4 + .6 * (1 - (z + 1) / 2);
+    out.push([CX + x * R * k, CY + yy * R * k, c[0] * luz, c[1] * luz, c[2] * luz]);
+  }
+  return out;
+}
+// la campana suena en su pulso: se balancea desde el colgante
+function campana(t) {
+  const d = t - T(19.5), a = d > 0 ? Math.sin(d * 16) * .22 * Math.exp(-d * 2.5) : 0, c = Math.cos(a), s = Math.sin(a), px = CX, py = CY - 205;
+  return F.campana.map(([x, y, r, g, b]) => [px + (x - px) * c - (y - py) * s, py + (x - px) * s + (y - py) * c, r, g, b]);
+}
+const polvo = t => RND.map(([a, b], i) => [a * W, b * H + Math.sin(t * .4 + i) * 12, 120, 104, 84]);
+
+// Secuencia: [pulso, forma]. Cada partícula viaja con su propio retraso, un resorte y un arco lateral.
+const SECUENCIA = [[0, 'esfera'], [4, 'palabras'], [8, 'libreta'], [12, 'lista'], [18, 'campana'], [22, 'lupa'], [26, 'polvo'], [28, 'nombre']];
+const destino = (n, t) => n === 'esfera' ? esfera(t) : n === 'polvo' ? polvo(t) : n === 'campana' ? campana(t) : F[n];
+
+function particulas(t) {
+  let i = 0; while (i < SECUENCIA.length - 1 && t >= T(SECUENCIA[i + 1][0])) i++;
+  const [b1, n1] = SECUENCIA[i], [, n0] = i ? SECUENCIA[i - 1] : SECUENCIA[0];
+  const A = destino(n0, t), B = destino(n1, t), t1 = T(b1);
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  const tam = n1 === 'polvo' ? 1.6 : 2.4;
+  for (let j = 0; j < N; j++) {
+    const [r0, r1, r2] = RND[j], d = t - t1 - r0 * .35;
+    const e = i === 0 ? 1 : escalon(d, 1.5 + r1, .72);
+    const a = A[j], b = B[j];
+    const ar = Math.sin(Math.PI * clamp(e)) * (r2 - .5) * 160;
+    const x = lerp(a[0], b[0], e) + ar, y = lerp(a[1], b[1], e) - ar * .5;
+    ctx.fillStyle = `rgba(${lerp(a[2], b[2], clamp(e)) | 0},${lerp(a[3], b[3], clamp(e)) | 0},${lerp(a[4], b[4], clamp(e)) | 0},.9)`;
+    ctx.fillRect(x - tam / 2, y - tam / 2, tam, tam);
+  }
+  ctx.restore();
+}
+
+// ───────────── lo que no es partícula ─────────────
+function tx(s, x, y, tam, peso, color, alinear = 'center', fuente = FUENTE) { ctx.font = `${peso} ${tam}px ${fuente}`; ctx.fillStyle = color; ctx.textAlign = alinear; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y); }
+// rótulo que sube desde su máscara y baja al irse (nunca por opacidad)
+function rotulo(t, a, b, s, y = 900, tam = 48, peso = 600, color = C.crema, fuente = FUENTE) {
+  const k = escalon(t - T(a), 2.6, .9) - (b ? escalon(t - T(b), 3, .9) : 0);
+  if (t < T(a) || k <= .002 || (b && t > T(b) + 1)) return;       // el resorte nunca llega a 0: si no, asoma una cola
+  const baja = b && t > T(b);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, y - tam, W, tam * 1.7); ctx.clip();
+  tx(s, CX, y + tam * 1.8 * (baja ? -(1 - k) : (1 - k)), tam, peso, color, 'center', fuente); ctx.restore();
+}
+// las tildes de la lista: se dibujan en su pulso, encima de cada casilla
+function tildes(t) {
+  if (t < T(14.3) || t > T(18.1)) return;
+  const sale = tramo(t, T(17.8), T(18.1));
+  CAJAS.forEach(([x, y], i) => {
+    const k = tramo(t, T(14.5 + i * .5), T(14.5 + i * .5) + .25, 'cubica');
+    if (k <= 0) return;
+    ctx.save(); ctx.globalAlpha = 1 - sale; ctx.strokeStyle = C.ambar; ctx.lineWidth = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(x - 20, y); ctx.lineTo(lerp(x - 20, x - 5, clamp(k * 2)), lerp(y, y + 17, clamp(k * 2)));
+    if (k > .5) ctx.lineTo(lerp(x - 5, x + 24, (k - .5) * 2), lerp(y + 17, y - 20, (k - .5) * 2));
+    ctx.stroke();
+    ctx.fillStyle = C.gris; ctx.fillRect(x + 80, y - 2, 340 * clamp(k * 1.3), 4);   // el renglón se tacha
+    ctx.restore();
+  });
+}
+// ícono de la libreta junto al nombre, al final
+function iconoFinal(t) {
+  const k = escalon(t - T(28.6), 2, .82);
+  if (k <= 0) return;
+  ctx.save(); ctx.translate(CX - 400, CY - 20); ctx.scale(k, k);
+  ctx.fillStyle = C.ambar; ctx.beginPath(); ctx.roundRect(-60, -80, 120, 160, 20); ctx.fill();
+  ctx.fillStyle = C.fondo; for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(-60, -52 + i * 34, 10, 0, 7); ctx.fill(); }
+  ctx.fillStyle = 'rgba(23,26,36,.35)'; for (let i = 0; i < 3; i++) ctx.fillRect(-26, -34 + i * 32, 58, 7);
+  ctx.restore();
+}
+const GRANO = (() => { const c = document.createElement('canvas'); c.width = 512; c.height = 512; const g = c.getContext('2d'), d = g.createImageData(512, 512), a = M.azar(3); for (let i = 0; i < d.data.length; i += 4) { const v = a() * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 14; } g.putImageData(d, 0, 0); return c; })();
+
+function render(t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.filter = 'none'; ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = C.fondo; ctx.fillRect(0, 0, W, H);
+  const g = ctx.createRadialGradient(CX, CY, 0, CX, CY, 1000); g.addColorStop(0, 'rgba(240,164,58,.10)'); g.addColorStop(1, 'rgba(240,164,58,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const z = 1 + .025 * (P.golpe(t, 8, .3) + P.golpe(t, 28, .3));
+  ctx.translate(960, 540); ctx.scale(z, z); ctx.translate(-960, -540);
+  particulas(t);
+  tildes(t); iconoFinal(t);
+  rotulo(t, 8.6, 11.6, 'Todas en un solo lugar');
+  rotulo(t, 12.6, 17.6, 'Tacha lo que ya hiciste');
+  rotulo(t, 18.6, 21.6, 'Te avisa a tiempo');
+  rotulo(t, 22.6, 25.6, 'Encuentra cualquier nota');
+  rotulo(t, 29.4, null, 'Tus notas, en orden.', 780, 56, 500, C.crema, MARCA);
+  rotulo(t, 31, null, 'App de ejemplo: no existe', 880, 34, 600, C.ambar);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const f = Math.round(Reproductor.cuadro(t) * 30), a = M.azar(f + 1);
+  ctx.drawImage(GRANO, -a() * 512, -a() * 512, 512 * 5, 512 * 3);
+  const v = ctx.createRadialGradient(960, 540, 420, 960, 540, 1150); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,8,.55)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  const neg = Math.max(1 - clamp(t / .4), clamp((t - (DUR - .8)) / .8));
+  if (neg > 0) { ctx.globalAlpha = neg; ctx.fillStyle = C.fondo; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+
+document.fonts.ready.then(() => {
+  prepararFormas();
+  Reproductor.iniciar({ canvas: cv, render, duracion: DUR, audio: 'musica.wav', desenfoque: 4 });
+});
+</script>
+</body>
+</html>
