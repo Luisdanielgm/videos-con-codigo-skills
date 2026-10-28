@@ -36,8 +36,8 @@ cientos de MB) y un `creditos.json` con autor, fecha, licencia y página de cada
 - Preferir **dominio público**; CC BY sirve con crédito. Descartar fotos modernas de museo (se ven de hoy).
 - **Mirar tamaño y licencia antes de bajar**, y bajar a `recursos/` (fuera de git: puede ser un enlace a
   otro disco si el material pesa).
-- `bajar.py` (en la carpeta del ejemplo) baja por título y guarda `creditos.json`: de ahí salen los
-  créditos del final y los rótulos con año. Para otro tema, cambiar su diccionario `ARCHIVOS`.
+- `bajar.py` (en la carpeta del ejemplo) baja por título y guarda `creditos.json` (autor, fecha, licencia, página):
+  de ahí salen los créditos del final y los rótulos con año. Para otro tema, cambiar su diccionario `ARCHIVOS`.
 - Las cifras, de una fuente citable (Our World in Data trae CSV por país). **Revisar la serie**: la de
   población del Reino Unido empalma fuentes y pega un salto falso de 12 a 17 millones hacia 1810; se usa
   sólo el tramo continuo (1820–1900) y se dice «con Irlanda».
@@ -85,6 +85,52 @@ panel de un navegador con la pestaña oculta**: `toBlob` tarda más de 1 s por c
 - Cada archivo usado está en `creditos.json` y en los créditos del final, con su licencia.
 - Toda cifra en pantalla sale de `datos.js` (fuente citada en pantalla).
 - `saltos.py` sobre el MP4 (los cortes en compás, a propósito, van en `--cortes`).
+
+## Variante «mesa con evidencia» (gramática Vox)
+
+La otra forma de usar el archivo: en vez de película vieja con interfaz de datos, **un argumento armado sobre una mesa** con
+las pruebas reales (recortes, fotos, documentos, mapas, citas) y una cámara que las recorre como la mirada de un periodista.
+La credibilidad sale de que esas cosas están de verdad ahí. Rige todo lo de arriba sobre buscar y acreditar el material:
+**una prueba inventada no es una variante de estilo, es mentir**.
+
+- **Cuándo sí**: «cómo pasó esto», «quién dijo qué y cuándo», una cifra o una cita que el público tiene que ver de dónde
+  sale. **Cuándo no**: un mecanismo sin material que pegar (eso es la variante Kurzgesagt de `video-html-canvas`), los pasos
+  de un razonamiento (pizarra) o mucha actuación de personajes.
+- **La mesa**: papel o corcho que la cámara recorre; el material real **lleva el cuadro**: cuando algo se lee, ocupa ≥ 60 %
+  del ancho (dos tomas seguidas con la prueba más chica que eso ya es un portarretratos, no una mesa). Tres colores: casi
+  negro, blanco papel y un rojo en dos tonos (el claro para líneas, el oscuro para rellenos), más un amarillo resaltador
+  apagado sólo para subrayar. Ni blanco ni negro puros. Fotos en gris con trama de puntos a 45°, borde blanco y dos tiras de
+  cinta; sombra apenas visible; la textura del papel **quieta** (no tiembla por cuadro). Un poco imperfecto a propósito: lo
+  perfecto se lee como aviso publicitario.
+- **Dos ritmos (lo que la define)**: la cámara se mueve suave a los fps del video; los trazos (líneas que se dibujan, letras
+  que se escriben, círculos a mano, resaltador, un mapa que se llena) avanzan **a 12 por segundo, de a dos cuadros**:
+  `const tq = Math.floor(t * 12) / 12` y el avance se calcula con `tq`. Todo suave parece video institucional; todo a 12
+  marea.
+- **Cámara**: nunca lineal. Recorridos de 0,7–2 s (mediana ≈ 1,3): ida y vuelta suave (`expoInOut`) para ir a buscar la
+  prueba siguiente; arranque rápido con cola larga para seguir un hilo o abrir el plano. Mientras algo se dibuja dentro de
+  una prueba, la cámara está quieta. Una foto quieta no se mira con una deriva lenta: en la palabra clave de la voz, un
+  acercamiento rápido corto (≈ 0,3 s, 18–32 % más cerca) y quieta otra vez.
+- **Entradas**: la prueba ya está en el corte (sin rebote ni caída). Sólo al seguir una línea de tiempo la siguiente
+  entra deslizando, inclinada 5–15°, y se endereza al llegar (≈ 0,8 s).
+- **Trazos**: subrayado rojo en 0,5–1 s; círculo a mano de un trazo en ≈ 1 s, sin cerrar y con las puntas cruzadas;
+  resaltador de 1,5–3 s por renglón, al paso de la voz; escritura a ≈ 13 letras por segundo; **hilo rojo** entre pruebas,
+  un poco caído, con un punto en cada punta.
+- **Transiciones**: casi todas cortes secos en la puntuación de la voz; seguir el hilo rojo hasta la prueba siguiente
+  (1,3–1,8 s); acercarse a una foto hasta llenar el cuadro y cortar a la misma foto en un escaneo mejor; abrir de una foto a
+  toda la mesa (≈ 1 s). El papel que se rasga **no** es de esta gramática (es de plantilla).
+- **Ritmo**: lento, ≈ 3,3 s por toma (≈ 12 cortes por minuto; la prueba se sostiene con sus trazos) o rápido, 1,4–1,8 s
+  (25–33 cortes por minuto, imágenes casi quietas). Cada palabra clave de la voz tiene su acción en la imagen.
+- **Seis cuidados** (lo que más se rompe): (1) el texto que se lee va **arriba de todo y se dibuja último**: una foto o una
+  cinta que lo tapa es el error que más vuelve; (2) el encuadre se calcula desde el rectángulo de lo que se lee ahora más un
+  margen, no con coordenadas a mano, y el rótulo de una prueba vecina a medio entrar queda fuera; (3) cada vez que se suma
+  una prueba, leer en orden todo lo que hay en pantalla: dos rótulos juntos pueden armar una frase falsa; (4) un hecho se
+  anima una sola vez (si pasó en el plano general, al acercarse no se repite); (5) variar el revelado: «desliza → rótulo →
+  círculo rojo» no más de 3 veces seguidas (también: ya estar en el corte, acercarse, resaltar, unir con hilo, sellar);
+  (6) el ritmo de los trazos va con las palabras de la voz, no con los pulsos de la música.
+
+Gramática de huashu-art-motion (alchaincyf, MIT), `references/动画语法/y2_vox.md`, contada con palabras propias; sus cifras
+salen de medir cinco videos de Vox y Johnny Harris cuadro a cuadro. Desmontar una referencia propia antes de imitarla:
+`herramientas/desmontar.py`.
 
 ## Lo que falló
 

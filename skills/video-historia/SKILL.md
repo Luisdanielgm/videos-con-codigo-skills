@@ -71,15 +71,23 @@ Para repetir la misma escena en otra técnica, copiar `guion.json`, `sonido.json
 3. **Apuntar al punto correcto del cuerpo**: en un primer plano del pecho, la cámara mira el pecho,
    no la cabeza. Calcular la altura real de ojos y pecho a partir de la cadera y la pose.
 4. **Lo que dice la voz se ve**: «no hizo ningún ruido» → anillos en el agua y el ambiente baja
-   (`silencio`); «el corazón a mil» → el plano late y suena `latido`.
+   (`silencio`); «el corazón a mil» → el plano late y suena `latido`. **Y al revés, la imagen cuenta sola**:
+   sin voz ni subtítulos se entiende qué pasa (referencia: el video sin texto de @TheSpacerr). Los anillos, el
+   viento o una caída se **simulan** (con semilla y paso fijo, en función de `t`), no se dibujan a ojo.
 5. **La noche no puede dejar caras negras**: en 3D, luz de relleno que sigue a la cámara.
-6. **Cambios de lugar grandes** (de la roca a la playa) con un fundido, no con un salto.
+6. **Cambios de lugar grandes** (de la roca a la playa) con un fundido, no con un salto. Si el cambio es de
+   **escala** (del cielo al pueblo, del pueblo a una mano), un zoom continuo de potencias de diez: la escala
+   avanza exponencial y cada tramo dura en proporción a `log10` del zoom que recorre.
 7. **Brazos y piernas**: comprobar el signo de la rotación de cada lado (en 3D el brazo izquierdo gira al revés).
 8. **Personajes sentados en una repisa**: dibujar la roca debajo; si no, flotan sobre el mar.
 9. **Franjas panorámicas** (si hay): nada importante detrás; la luna y lo que entra por arriba
    tienen que quedar dentro de la imagen.
 10. **Trazos a mano en primer plano**: al ampliar un personaje, el grosor y el temblor del trazo no
     se amplían (dividir por la escala).
+11. **Quietud cuando alguien habla**: el plano que muestra lo que se dice queda quieto ≥ 400 ms; la cámara se
+    mueve entre frases. La coreografía va por frases (`A(id)`, `F(id, f)`), no por los pulsos de la música.
+
+Reglas 4, 6 y 11: recetas tomadas de videos públicos en X (las mismas de «Dirección de un narrado» en `video-html-canvas`).
 
 ## Verificar
 

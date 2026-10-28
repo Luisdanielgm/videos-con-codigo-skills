@@ -10,6 +10,7 @@
  *   M.morph(puntosA, puntosB, k)           // una forma que se vuelve otra (mismos N puntos)
  *   M.forma.circulo(cx, cy, r, 240), M.forma.poligono(...), M.forma.estrella(...), M.forma.rectRedondo(...)
  *   M.puntosDeTexto('Hola', '900 160px Inter', 5000)   // puntos sobre las letras (para partículas)
+ *   M.motas(ctx, t, { color: '240,164,58' })                 // polvo que flota: ningún tramo queda quieto
  *
  * Técnicas tomadas de videos comerciales de referencia hechos con agentes:
  * todo en grilla de pulsos, resortes en forma cerrada que se suman, morph por puntos, texto de partículas.
@@ -127,5 +128,22 @@ window.Movimiento = (() => {
   }
   function azar(semilla) { let s = semilla >>> 0; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
 
-  return { clamp, lerp, pulsos, curva, tramo, escalon, resorte, forma, morph, trazar, puntosDeTexto, azar };
+  // ── motas: polvo que flota en el fondo para que ningún tramo quede quieto (función pura de t) ──
+  // M.motas(ctx, t, { n: 26, color: '240,164,58', alfa: .35, tam: [2, 5], vel: [25, 60], semilla: 7 })
+  // Cada mota tiene posición, dirección y velocidad fijas por semilla; cruza el cuadro y vuelve a entrar por el otro lado.
+  function motas(ctx, t, { n = 26, color = '245,241,232', alfa = .3, tam = [2, 5], vel = [25, 60], semilla = 7, w = 1920, h = 1080 } = {}) {
+    const a = azar(semilla);
+    ctx.save();
+    for (let i = 0; i < n; i++) {
+      const x0 = a() * w, y0 = a() * h, ang = -Math.PI / 2 + (a() - .5) * 1.4, v = lerp(vel[0], vel[1], a());
+      const s = lerp(tam[0], tam[1], a()), fase = a() * 6.283, m = 40;
+      const x = ((x0 + Math.cos(ang) * v * t) % (w + 2 * m) + w + 2 * m) % (w + 2 * m) - m;
+      const y = ((y0 + Math.sin(ang) * v * t) % (h + 2 * m) + h + 2 * m) % (h + 2 * m) - m;
+      ctx.fillStyle = `rgba(${color},${alfa * (.55 + .45 * Math.sin(t * 1.3 + fase))})`;
+      ctx.beginPath(); ctx.arc(x, y, s, 0, 6.283); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  return { clamp, lerp, pulsos, curva, tramo, escalon, resorte, forma, morph, trazar, puntosDeTexto, azar, motas };
 })();

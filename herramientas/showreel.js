@@ -10,6 +10,21 @@
  *     nombre: ['Nota', 'Fácil'], gancho: ['¿DÓNDE', 'ANOTASTE', 'ESO?'], sub: 'una app de notas',
  *     lineas: [a, b, c], formas: [4 palabras], numero: { valor, etiqueta }, marquesina: 'NOTAFÁCIL',
  *     rafaga: [frase1, frase2], cierre: 'frase final', url: 'notafacil.example' })
+ *
+ * Opciones del arreglo del crítico ciego (lección de `libreta`). TODAS apagadas por omisión: sin ellas el
+ * video sale idéntico al de los showreels ya aprobados antes de estas opciones.
+ *   ganchoTerminado: true  el cuadro 0 ya es el titular terminado; cada letra «golpea» (sube 20 % y vuelve, con
+ *                          desfase de impresión) al paso de la onda en vez de entrar grande desde nada; el sub es fijo.
+ *   entradaNegra: false    sin fundido desde el color de fondo en el primer cuarto de segundo (por omisión sí).
+ *   salidaNegra: false     sin fundido al color de fondo en los últimos 0,6 s (por omisión sí; el cierre queda a la vista).
+ *   empuje: true           cámara que se acerca despacio en el gancho (1→1,035) y en la ráfaga (1→1,012 en cada
+ *                          frase): nada queda quieto al terminar sus entradas.
+ *   cierreVivo: true       en el logo y el cierre: empuje de cámara (1→1,05 de 24 s al final) y un brillo de una
+ *                          pasada sobre el botón de la URL.
+ *   cubo: { radio, cy, etiquetaY, halo }  geometría de la escena 3 (por omisión radio 330, cy = H/2−120,
+ *                          etiquetaY = H/2+330, halo 0). El cubo llega a ±2 radios por la perspectiva: con radio 250
+ *                          y cy 760 cae entre y≈260 y y≈1260 y no pisa la etiqueta (etiquetaY 1390). halo > 0 es el
+ *                          grosor (px) de un contorno del color de fondo alrededor de la cifra: las líneas no la cruzan.
  */
 window.Showreel = (() => {
   const M = window.Movimiento, { clamp, lerp, escalon, tramo } = M;
@@ -36,12 +51,21 @@ window.Showreel = (() => {
         const y = H / 2 - (lineas.length - 1) * tam * .5 + i * tam * 1.0 - 120 * tramo(u, 2, 2.6, 'expo');
         let x = W / 2 - ancho(l, tam, 900) / 2;
         for (const ch of l) {
-          const b0 = .1 + n * .09, k = escalon(t - T(b0), 3, .6); n++;
           const w = ancho(ch, tam, 900);
-          if (t > T(b0)) { ctx.save(); ctx.translate(x + w / 2, y); ctx.scale(lerp(2.4, 1, k), lerp(2.4, 1, k)); ctx.globalAlpha = clamp(k * 2); tx(ch, 0, 0, tam, 900, C.fondo); ctx.restore(); }
+          if (cfg.ganchoTerminado) {
+            // el cuadro 0 ya es el titular terminado: cada letra «golpea» (sube y vuelve, sin rebote) al paso de la onda
+            const b0 = -.2 + n * .1, pk = clamp((t - T(b0)) / .36), env = Math.sin(Math.PI * pk) ** 2; n++;
+            ctx.save(); ctx.translate(x + w / 2, y); ctx.scale(1 + .2 * env, 1 + .2 * env);
+            if (env > .05) tx(ch, 5 * env, 4 * env, tam, 900, C.acento2);   // desfase de impresión sólo en el golpe
+            tx(ch, 0, 0, tam, 900, C.fondo); ctx.restore();
+          } else {
+            const b0 = .1 + n * .09, k = escalon(t - T(b0), 3, .6); n++;
+            if (t > T(b0)) { ctx.save(); ctx.translate(x + w / 2, y); ctx.scale(lerp(2.4, 1, k), lerp(2.4, 1, k)); ctx.globalAlpha = clamp(k * 2); tx(ch, 0, 0, tam, 900, C.fondo); ctx.restore(); }
+          }
           x += w;
         }
       });
+      if (cfg.ganchoTerminado) { tx(cfg.sub, W / 2, H / 2 + (lineas.length) * tam * .5 + 40, 64, 700, C.fondo); return; }
       const k = escalon(t - T(2.2), 2.4, .8);
       if (t > T(2.2)) { ctx.globalAlpha = clamp(k * 1.5); tx(cfg.sub, W / 2, H / 2 + (lineas.length) * tam * .5 + 40 + 30 * (1 - k), 64, 700, C.fondo); ctx.globalAlpha = 1; }
     }
@@ -72,19 +96,25 @@ window.Showreel = (() => {
     // 3 · cubo de alambre (perspectiva a mano) y la cifra que llega desde el fondo
     function cubo(u, t) {
       fondo(C.fondo);
+      const CB = cfg.cubo || {}, rad = CB.radio || 330, cy = CB.cy == null ? H / 2 - 120 : CB.cy, ey = CB.etiquetaY == null ? H / 2 + 330 : CB.etiquetaY;
       const a = t * 1.1, b = t * .7, V = [];
       for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1]) {
         let X = x * Math.cos(a) - z * Math.sin(a), Z = x * Math.sin(a) + z * Math.cos(a), Y = y * Math.cos(b) - Z * Math.sin(b); Z = y * Math.sin(b) + Z * Math.cos(b);
-        const k = 3.4 / (3.4 + Z); V.push([W / 2 + X * 330 * k, H / 2 - 120 + Y * 330 * k]);
+        const k = 3.4 / (3.4 + Z); V.push([W / 2 + X * rad * k, cy + Y * rad * k]);
       }
       ctx.strokeStyle = C.acento; ctx.lineWidth = 6; ctx.lineCap = 'round';
       for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) { const d = (i ^ j); if (d === 1 || d === 2 || d === 4) { ctx.beginPath(); ctx.moveTo(...V[i]); ctx.lineTo(...V[j]); ctx.stroke(); } }
       const tq = Reproductor.cuadro(t), kk = tramo(tq, T(12.2), T(14.2), 'expo'), acerca = escalon(t - T(12.1), 1.6, .8);
       const valor = Math.round(cfg.numero.valor * kk).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-      ctx.save(); ctx.translate(W / 2, H / 2 - 120); ctx.scale(.2 + .8 * acerca, .2 + .8 * acerca);
-      tx(valor, 0, 0, ajustar(cfg.numero.valor.toLocaleString('es'), 900, W - 260, 230), 900, C.texto); ctx.restore();
+      ctx.save(); ctx.translate(W / 2, cy); ctx.scale(.2 + .8 * acerca, .2 + .8 * acerca);
+      const tamN = ajustar(cfg.numero.valor.toLocaleString('es'), 900, W - 260, 230);
+      if (CB.halo > 0) {   // halo del color de fondo: las líneas del cubo no cruzan la cifra
+        ctx.font = `900 ${tamN}px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+        ctx.strokeStyle = C.fondo; ctx.lineWidth = CB.halo; ctx.strokeText(valor, 0, 0);
+      }
+      tx(valor, 0, 0, tamN, 900, C.texto); ctx.restore();
       const ke = escalon(t - T(13), 2.2, .85); ctx.globalAlpha = clamp(ke * 1.5);
-      tx(cfg.numero.etiqueta, W / 2, H / 2 + 330 + 30 * (1 - ke), ajustar(cfg.numero.etiqueta, 700, W - 140, 64), 700, C.acento); ctx.globalAlpha = 1;
+      tx(cfg.numero.etiqueta, W / 2, ey + 30 * (1 - ke), ajustar(cfg.numero.etiqueta, 700, W - 140, 64), 700, C.acento); ctx.globalAlpha = 1;
     }
     // 4 · marquesinas: la misma palabra en filas que corren en sentidos opuestos, con la cámara inclinada
     function marquesina(u, t) {
@@ -170,6 +200,15 @@ window.Showreel = (() => {
       if (cfg.url) {
         const k4 = escalon(t - T(29), 2.2, .82), wb = ancho(cfg.url, 60, 800) + 120; ctx.globalAlpha = clamp(k4 * 1.5);
         ctx.fillStyle = C.acento; ctx.beginPath(); ctx.roundRect(W / 2 - wb / 2, H / 2 + 360 + 24 * (1 - k4), wb, 124, 62); ctx.fill();
+        if (cfg.cierreVivo) {
+          // brillo que cruza el botón (una pasada, de 15,5 s hasta el final), debajo del texto
+          const ps = clamp((t - T(29.6)) / 1.5);
+          if (ps > 0 && ps < 1) {
+            const bx = W / 2 - wb / 2 + (wb + 160) * M.curva.expo(ps) - 120, by = H / 2 + 360 + 24 * (1 - k4);
+            ctx.save(); ctx.beginPath(); ctx.roundRect(W / 2 - wb / 2, by, wb, 124, 62); ctx.clip();
+            ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.beginPath(); ctx.moveTo(bx + 40, by); ctx.lineTo(bx + 100, by); ctx.lineTo(bx + 60, by + 124); ctx.lineTo(bx, by + 124); ctx.fill(); ctx.restore();
+          }
+        }
         tx(cfg.url, W / 2, H / 2 + 424 + 24 * (1 - k4), 60, 800, C.fondo);
       }
       ctx.globalAlpha = 1;
@@ -180,11 +219,18 @@ window.Showreel = (() => {
     function render(t) {
       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
       const b = B(t), e = clamp(Math.floor(b / 4), 0, 7);
-      ESCENAS[e](b - e * 4, t);
-      // barrido de color en el último cuarto de pulso de cada escena (no antes del golpe del logo)
       const u = b - e * 4;
+      // empuje de cámara [avance 0–1, escala final − 1]: la velocidad cambia (parte lineal + parte cúbica) y nunca
+      // llega a cero. Antes del primer pulso u es negativo: sin el max(0) la escala sería < 1 y dejaría un borde sin cubrir.
+      const emp = cfg.empuje && e === 0 ? [Math.max(0, u) / 4, .035] : cfg.empuje && e === 5 ? [(u % 2) / 2, .012]
+        : cfg.cierreVivo && e >= 6 ? [clamp((t - T(24)) / (DUR - T(24))), .05] : null;
+      ctx.save();
+      if (emp) { const s = 1 + emp[1] * (.55 * emp[0] + .45 * emp[0] ** 3); ctx.translate(W / 2, H / 2); ctx.scale(s, s); ctx.translate(-W / 2, -H / 2); }
+      ESCENAS[e](u, t);
+      ctx.restore();
+      // barrido de color en el último cuarto de pulso de cada escena (no antes del golpe del logo)
       if (e < 5 && u > 3.72) { const k = M.curva.expoIn(clamp((u - 3.72) / .28)); ctx.fillStyle = BARRIDOS[e]; ctx.fillRect(0, H * (1 - k), W, H * k); }
-      const neg = Math.max(1 - clamp(t / .25), clamp((t - (DUR - .6)) / .6));
+      const neg = Math.max(cfg.entradaNegra === false ? 0 : 1 - clamp(t / .25), cfg.salidaNegra === false ? 0 : clamp((t - (DUR - .6)) / .6));
       if (neg > 0) { ctx.globalAlpha = neg; ctx.fillStyle = C.fondo; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
     }
     // energia.js es opcional (sin él no hay barras): se carga antes de arrancar para que la exportación lo tenga

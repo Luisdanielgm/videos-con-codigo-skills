@@ -14,13 +14,29 @@ texto, que ninguna línea o borde de forma pase por encima de un texto, que ning
 que ninguno sea chico. Lo que se encima a propósito (un sello, una tachadura) se marca con `encima(m)`.
 Al terminar escribe `efectos.json` (lo lee mezclar.py) e imprime el control por frase; si hay fallas, la escena
 se cae antes de juntar el video: primero se prueba rápido con `-s` (sin dibujar cuadros, ~1 min).
+
+Pantalla nunca quieta: la cámara flota (`deriva`: un círculo de .04 unidades, ≤ 2 % de alejamiento) durante
+cada animación y durante las esperas de más de RESPIRA_MIN, salvo en las pausas de voz (≥ 400 ms entre frases de
+tiempos.json, la misma regla de critico.py). El cuadro 0 es una portada (TITULO) que se va con la primera animación.
+Se apagan con RESPIRA = False, PORTADA = False o, en una sola espera, self.wait(d, respira=False).
 """
 import json
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
-from manim import *  # noqa: F401,F403
+
+# Dos motores con la misma API: ManimCE (por omisión) y ManimGX (VIDEOS_MOTOR=gx; venv aparte con Python 3.13,
+# lo lanza herramientas/render_gx.py). Medido en una escena de 5:44: GX 4,6× más rápido, 1,7× más RAM.
+GX = os.environ.get("VIDEOS_MOTOR") == "gx"
+if GX:
+    from manimgx import *  # noqa: F401,F403
+    from manimgx.animation.timeline import prepare as prepare_animation
+    from pathlib import Path   # manimgx exporta su propio Path: se vuelve al de la biblioteca estándar
+else:
+    from manim import *  # noqa: F401,F403
+    from manim.animation.animation import prepare_animation
 
 FONDO = "#0f1216"
 AZUL, CELESTE, AMARILLO, VERDE, ROJO, GRIS, BLANCO = "#58C4DD", "#9CDCEB", "#F4D35E", "#83C167", "#FC6255", "#8A9099", "#ECEFF1"
@@ -35,6 +51,18 @@ BARRIDO, GOLPE, METAL, SUAVE = ("transicion/whoosh-rapido.wav", "impacto/kenney-
 MARGEN = .06         # distancia mínima entre un texto y cualquier otra cosa (unidades de Manim; el cuadro mide 8 de alto)
 TAM_MIN = 24          # ningún texto más chico que esto (a 1080p, ~30 px de alto de letra)
 BORDE_X, BORDE_Y = 7.0, 3.9
+
+# respiración de las esperas: la cámara flota en un círculo chico que pasa por el centro, y se aleja lo justo
+# (≤ 2 %) para que nada del cuadro original quede afuera. Se mueve sólo durante las esperas; entre una y otra queda
+# donde estaba (sin saltos). Velocidad R·W = .08 unidades/s (~11 px/s a 1080p): lo mínimo que se ve en el MP4.
+RESPIRA_R, RESPIRA_W = .04, 2.0
+PAUSA_VOZ = .4        # un silencio entre frases de 400 ms o más es pausa de voz: ahí la pantalla puede quedar quieta
+
+
+def deriva(tau, r=RESPIRA_R, w=RESPIRA_W):
+    """Centro y escala de la cámara tras `tau` segundos de respiración (tau=0: el cuadro tal cual)."""
+    c = r * np.array([np.cos(w * tau) - 1, np.sin(w * tau), 0.0])
+    return c, 1 + np.linalg.norm(c) / (config.frame_height / 2)    # (s−1)·alto/2 = |c|: el cuadro original cabe
 
 
 # ───────────── piezas ─────────────
@@ -203,13 +231,43 @@ def revisar(mobs):
 
 
 # ───────────── la escena base ─────────────
-class Explicativo(Scene):
+class _Deriva(Animation):
+    """La cámara de tau0 a tau0 + run_time por `deriva`, siempre a ritmo parejo (no usa el rate_func del play)."""
+    def __init__(self, frame, tau0, run_time):
+        super().__init__(frame, run_time=run_time)
+        self.tau0 = tau0
+
+    def interpolate(self, alpha):
+        c, s = deriva(self.tau0 + alpha * self.run_time)
+        self.mobject.scale_to_fit_height(config.frame_height * s).move_to(c)
+
+
+class Explicativo(MovingCameraScene):
     CARPETA = None        # carpeta del video (tiempos.json; ahí se escribe efectos.json)
+    TITULO = None         # portada del primer cuadro: "título" o ("título", "subtítulo"); None: el nombre de la carpeta
+    PORTADA = True        # False: el video arranca como lo arme construct (ojo: si arranca vacío, el primer cuadro es negro)
+    RESPIRA = True        # False: las esperas quedan quietas (también por espera: self.wait(d, respira=False))
+    RESPIRA_MIN = .5      # sólo respiran las esperas más largas que esto (s)
+    SINCRO_VOZ = False    # True: en(i, frac) espera a la hora REAL de la voz (pausas de narracion.wav, sincro_voz.py),
+                          # no a la cuenta proporcional al texto, que se corre hasta 3 s en frases largas
 
     def setup(self):
         self.T = json.loads((Path(self.CARPETA) / "tiempos.json").read_text(encoding="utf-8"))
         self.frase = "inicio"
         self.efectos, self.control = [], {}
+        seg = sorted((s["inicio"], s["inicio"] + s["dur"]) for s in self.T["seg"].values())
+        pausas = [(0.0, seg[0][0])] + [(a[1], b[0]) for a, b in zip(seg, seg[1:])] + [(seg[-1][1], self.T.get("total", 0))]
+        self.pausas = [(a, b) for a, b in pausas if b - a >= PAUSA_VOZ]    # la misma regla que critico.py --quietos
+        self.tau = 0.0
+        self.portada = None
+        if self.PORTADA:
+            t = self.TITULO or Path(self.CARPETA).name.replace("-", " ").capitalize()
+            titulo, sub = (t, None) if isinstance(t, str) else t
+            g = tx(titulo, 60)
+            if g.width > 12: g.scale_to_fit_width(12)
+            raya = Line(LEFT * min(g.width / 2, 3), RIGHT * min(g.width / 2, 3), color=AZUL, stroke_width=4)
+            self.portada = VGroup(g, raya, *([tx(sub, 34, GRIS)] if sub else [])).arrange(DOWN, buff=.4)
+            self.add(self.portada)          # el cuadro 0 ya es una composición terminada, no un fundido desde negro
 
     def ini(self, i): return self.T["seg"][i]["inicio"]
     def dur(self, i): return self.T["seg"][i]["dur"]
@@ -221,6 +279,11 @@ class Explicativo(Scene):
     def en(self, i, frac=0.0):
         """Espera al momento `frac` (0–1) de la frase i."""
         self.frase = i
+        if self.SINCRO_VOZ and frac > 0:
+            if not hasattr(self, "_voz"):
+                from sincro_voz import Voz
+                self._voz = Voz(self.CARPETA)
+            return self.hasta(self._voz.momento(i, frac))
         self.hasta(self.ini(i) + self.dur(i) * frac)
 
     def sfx(self, archivo, db=-14, desfase=0.0, pico=False):
@@ -264,14 +327,45 @@ class Explicativo(Scene):
         return cab
 
     def play(self, *a, **k):
+        if not all(isinstance(x, Wait) for x in a):
+            a = [prepare_animation(x) for x in a]
+            rt = k.get("run_time") or max(x.run_time for x in a)
+            p = self.portada
+            if p is not None and p in self.mobjects and not any(x.mobject is p for x in a):
+                a.append(FadeOut(p, rate_func=lambda u: smooth(min(1.0, u * max(rt / .5, 1.0)))))  # se va en ≤ 0,5 s
+            if self.RESPIRA:               # la deriva sigue durante la animación: sin cuadros quietos en sus bordes suaves
+                a.append(_Deriva(self.camera.frame, self.tau, rt)); self.tau += rt
         super().play(*a, **k)
+        self.remove(self.camera.frame)     # la cámara no es parte de la pizarra (capa, limpia, control)
         fallas = revisar(self.mobjects)
         c = self.control.setdefault(self.frase, [])
         for f in fallas:
             if f not in c: c.append(f)
 
+    def wait(self, duration=DEFAULT_WAIT_TIME, stop_condition=None, frozen_frame=None, respira=None):
+        """Las esperas de más de RESPIRA_MIN respiran (la cámara flota, ver `deriva`) salvo en las pausas de voz."""
+        if not (self.RESPIRA if respira is None else respira) or stop_condition or frozen_frame \
+                or duration <= self.RESPIRA_MIN:
+            return super().wait(duration, stop_condition, frozen_frame)
+        t0, t1 = self.renderer.time, self.renderer.time + duration
+        cortes = sorted({t0, t1, *[x for a, b in self.pausas for x in (a, b) if t0 < x < t1]})
+        tramos = []                                        # [duración, quieto]; los de menos de un cuadro se suman al anterior
+        for a, b in zip(cortes, cortes[1:]):
+            quieto = any(p <= (a + b) / 2 <= q for p, q in self.pausas)
+            if tramos and (b - a < 1 / config.frame_rate or tramos[-1][1] == quieto): tramos[-1][0] += b - a
+            else: tramos.append([b - a, quieto])
+        if len(tramos) > 1 and tramos[0][0] < 1 / config.frame_rate: tramos[1][0] += tramos.pop(0)[0]
+        for d, quieto in tramos:
+            if quieto: super().wait(d)
+            else:
+                Scene.play(self, _Deriva(self.camera.frame, self.tau, d))
+                self.remove(self.camera.frame)
+                self.tau += d
+
     def tear_down(self):
-        (Path(self.CARPETA) / "efectos.json").write_text(json.dumps(self.efectos, ensure_ascii=False, indent=1), encoding="utf-8")
+        # VIDEOS_EFECTOS: otro nombre de archivo, para el render por tramos (-n): cada tramo escribe el suyo y sólo el
+        # último (que recorre la escena entera) trae todos los efectos
+        (Path(self.CARPETA) / os.environ.get("VIDEOS_EFECTOS", "efectos.json")).write_text(json.dumps(self.efectos, ensure_ascii=False, indent=1), encoding="utf-8")
         malas = 0
         print("\nControl de textos encimados (por frase):")
         for frase, fallas in self.control.items():
@@ -307,6 +401,28 @@ def probar():
     caso("tachadura marcada encima", [t := tx("promesa"), encima(Line(t.get_left(), t.get_right(), color=ROJO))], None)
     caso("texto invisible (opacidad 0)", [tx("oculto").set_opacity(0), Rectangle(width=.5, height=.5)], None)
     print(f"  {sum(casos)} ok, {len(casos) - sum(casos)} FALLA")
+    # la respiración: la cámara a la deriva sigue viendo todo el cuadro original y se mueve lo bastante para notarse
+    print("Prueba de la respiración de las esperas:")
+    alto, ancho, dt = config.frame_height, config.frame_width, 1 / 30
+    def cabe(tau, alejar=True):
+        c, s = deriva(tau)
+        s = s if alejar else 1.0
+        return abs(c[0]) <= (s - 1) * ancho / 2 + 1e-9 and abs(c[1]) <= (s - 1) * alto / 2 + 1e-9
+    def rapidez(tau, r=RESPIRA_R, w=RESPIRA_W):              # unidades/s en pantalla del centro de la pizarra
+        (c0, s0), (c1, s1) = deriva(tau, r, w), deriva(tau + dt, r, w)
+        return np.linalg.norm(c1 / s1 - c0 / s0) / dt
+    taus = np.linspace(0, 60, 2401)
+    def caso_r(nombre, bien_esperado, dio):
+        casos.append(dio == bien_esperado)
+        print(f"  {'ok' if dio == bien_esperado else 'FALLA'}  {nombre}")
+    caso_r("en tau=0 el cuadro queda tal cual", True, bool(np.allclose(deriva(0)[0], 0) and deriva(0)[1] == 1))
+    caso_r("la deriva nunca deja afuera el cuadro original", True, all(cabe(t) for t in taus))
+    caso_r("sin alejarse sí lo dejaría afuera (la guardia ve)", False, all(cabe(t, alejar=False) for t in taus[1:]))
+    caso_r("se aleja a lo más 2 %", True, max(deriva(t)[1] for t in taus) <= 1.02 + 1e-9)
+    caso_r("se mueve a .07 unidades/s o más todo el tiempo (se nota en el MP4)", True, min(rapidez(t) for t in taus) >= .07)
+    caso_r("a la mitad de rapidez no se notaría (la guardia ve)", False,
+           min(rapidez(t, w=RESPIRA_W / 2) for t in taus) >= .07)
+    print(f"  {sum(casos)} ok, {len(casos) - sum(casos)} FALLA en total")
     return all(casos)
 
 

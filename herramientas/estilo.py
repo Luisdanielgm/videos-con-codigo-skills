@@ -1,6 +1,7 @@
 """Acabado de estilo sobre un video ya hecho: lo vuelve una impresión risográfica (técnica 7).
 
 Uso:  .venv/Scripts/python herramientas/estilo.py <entrada.mp4> <salida.mp4> [--capturas 12,57] [--puntos]
+       .venv/Scripts/python herramientas/estilo.py --probar     (1 s de prueba: color, cuadros y audio; y su caso roto)
        (--puntos: trama regular de puntos, más «pop», pero hace moiré; por omisión, trama de grano)
 
 Cada cuadro se separa en cuatro tintas (azul, rosa flúor, amarillo y negro), cada tinta se imprime como
@@ -14,6 +15,8 @@ import sys
 from pathlib import Path
 
 import numpy as np
+
+from color_mp4 import COLOR_709
 
 W, H = 1920, 1080
 RAIZ = Path(__file__).resolve().parent.parent
@@ -103,7 +106,7 @@ def main():
                          capture_output=True, text=True).stdout.strip().strip(",").split(",")[0]
     enc = subprocess.Popen(["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", fps, "-i", "-",
                             "-i", str(entrada), "-map", "0:v", "-map", "1:a?", "-c:a", "copy", "-c:v", "libx264", "-preset", "medium",
-                            "-crf", "30", "-pix_fmt", "yuv420p", str(salida)], stdin=subprocess.PIPE)
+                            "-crf", "30", "-pix_fmt", "yuv420p", *COLOR_709, str(salida)], stdin=subprocess.PIPE)
     for f, rgb in enumerate(leer(entrada)):
         enc.stdin.write((imprimir(rgb, f) * 255).astype(np.uint8).tobytes())
         if f % 300 == 0:
@@ -112,5 +115,14 @@ def main():
     print("estilo:", "listo" if enc.wait() == 0 else "ERROR", "->", salida)
 
 
+def probar():
+    """1 s de prueba → riso: el MP4 sale con color etiquetado, los 30 cuadros y el audio copiado (color_mp4.probar_salida)."""
+    from color_mp4 import probar_salida
+    hacer = lambda e, s, _t: subprocess.run([sys.executable, __file__, str(e), str(s)], check=True, capture_output=True)
+    return probar_salida("estilo (riso)", hacer, cuadros=30)
+
+
 if __name__ == "__main__":
+    if "--probar" in sys.argv:
+        sys.exit(0 if probar() else 1)
     main()

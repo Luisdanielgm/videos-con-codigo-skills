@@ -39,6 +39,12 @@ Showreel.video({ canvas: document.getElementById('c'),
 El prompt viral que lo originó: «showreel de 15 s que muestre qué increíble motion designer eres… go all out»,
 cambiando «résumé» por el producto.
 
+Opciones del arreglo del crítico (todas apagadas por omisión; detalle en la cabecera de `herramientas/showreel.js`):
+`ganchoTerminado:true` (cuadro 0 con el titular terminado, letras que golpean), `entradaNegra:false` y
+`salidaNegra:false` (sin fundidos a negro), `empuje:true` (cámara que se acerca en el gancho y la ráfaga),
+`cierreVivo:true` (empuje en el cierre y brillo en el botón), `cubo:{radio, cy, etiquetaY, halo}` (cubo acotado que no
+cruza la etiqueta y halo de la cifra; p. ej. `{radio:250, cy:760, etiquetaY:1390, halo:36}`).
+
 ## Pasos
 
 1. Elegir textos verdaderos del producto (gancho en pregunta, 3–4 frases cortas, una cifra real, la URL).
@@ -49,6 +55,22 @@ cambiando «résumé» por el producto.
    de `hoja.py` deforma los cuadros verticales (los pone en 16:9): juntarlos a mano a 216×384 con las líneas de
    250 y 1500 px dibujadas.
 
+## Tipografía y cámara (reglas finas)
+
+- **El texto que sale se va antes de que entre el nuevo**: nunca dos frases a la vez en el mismo lugar ni una
+  cruzando a otra; la salida termina en el pulso donde empieza la entrada.
+- **Desfase de impresión de 2–4 px** (los canales o una copia de color corridos, como plancha mal registrada)
+  **sólo en los impactos**, unos pocos cuadros; el resto del tiempo el texto está limpio. Incluye el glitch del logo.
+- **Letras revueltas con semilla**: el carácter de cada letra sale de `Movimiento.azar(...)` con una semilla que
+  combina la del video, el número de letra y el instante de `Reproductor.cuadro(t)`; así cada render y cada
+  subcuadro dan lo mismo.
+- **Cámara a la mitad de la velocidad que parece bien** (por omisión) y movimientos de 1,5–3 s; los giros y
+  alejamientos rápidos sólo en un golpe.
+- **Excepción a la gramática de fragmentos de `video-lanzamiento`** (texto ≤ 65 % de los cuadros, imagen pura entre
+  fragmentos): aquí el texto **es** la imagen, así que ese tope no aplica. Sí valen los fragmentos de 1 a 4 palabras
+  por golpe y la prueba de especificidad (¿esta frase sería igual de cierta para otro producto?). Si un showreel se
+  monta sobre material real (capturas o producto), vuelve a valer la regla entera.
+
 ## Lo que falló
 
 - El corte de líneas tenía los argumentos invertidos (`ancho(pr, 130, 900)`): partir frases midiendo con el
@@ -56,6 +78,17 @@ cambiando «résumé» por el producto.
 - Un logo cuadrado tapaba el nombre: **limitar el logo por alto** (máx. 480 px).
 - Una palabra larga en la escena tocaba el borde con 60 px de margen: `ajustar()` deja 100 px a cada lado.
 - Nada de textos chiquitos en las esquinas.
+- **Crítico ciego sobre «Libreta»: congelado 6,3 s/30 s, cierre quieto 1,2 s, cuadro 0 vacío, cubo sobre la
+  etiqueta.** Lecciones: (1) el cuadro 0 es el titular ya terminado y las letras «golpean» (suben y vuelven) en vez
+  de entrar; nada de fundido desde el color de fondo (`neg` lo volvía marrón). (2) Toda escena que queda quieta al
+  terminar sus entradas lleva un empuje lento de cámara (escala 1→1,012–1,05 con parte lineal + cúbica) y el brillo
+  de una pasada en el botón: se midieron 7 tramos quietos, no sólo el que dijo el crítico. Antes del primer pulso
+  `u` es negativo: acotar con `max(0, …)` o la escala < 1 deja un borde sin cubrir que depende del cuadro anterior.
+  (3) El cubo de alambre llega a ±2 radios por la perspectiva: con radio 250 px cae en y≈260–1260 y la etiqueta va
+  en y=1390; la cifra lleva un halo del color de fondo. (4) Sin fundido a negro al final. Esos arreglos ya son
+  **opciones del motor compartido** (apagadas por omisión: los showreels ya hechos salen idénticos; medido con
+  capturas antes/después). Un showreel nuevo debe encenderlas todas (ver las opciones en «Motor»). El ejemplo
+  publicado `13-showreel/libreta/` es anterior a esas opciones y no las enciende.
 
 ## Verificar
 

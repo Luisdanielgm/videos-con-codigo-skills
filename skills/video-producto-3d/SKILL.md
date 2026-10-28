@@ -22,6 +22,10 @@ El producto se cuenta con objetos: p. ej. un recibo de papel curvado que un esc�
 como fichas y giran de una moneda a otra, una cesta que se llena, y la curva real de datos dibujándose
 mientras la cámara la sigue. Cierra con tarjetas de funciones y el logo.
 
+**El objeto es un `.glb` propio (modelo o escaneo del producto)** y hay que mostrarlo limpio, sin sus texturas y con una sola parte
+encendida: `herramientas/iso3d.py glb <archivo.glb> --acentos "<parte>"` y un visor de `.glb` como el de
+`video-maquina-isometrica` («Variante 3D real»). Un modelo de decenas de MB se decima antes en Blender.
+
 ## Motor y pasos
 
 1. Datos reales del producto a `datos.js` (sólo públicos, con su fuente). three.js local en `herramientas/vendor/`.
@@ -63,6 +67,15 @@ mientras la cámara la sigue. Cierra con tarjetas de funciones y el logo.
 - En vertical (1080×1920) el ancho visible es chico: calcularlo (`2·d·tan(fov/2)·aspecto`) antes de ubicar.
 - Una etiqueta que viaja con la cámara salió en cuatro copias (desenfoque de movimiento con pocos subcuadros): en
   esos tramos, 60 fps o más subcuadros.
+- **Texturas de lienzo 2D que salen negras o transparentes en el exporte** (Libreta): con la GPU NVIDIA
+  (`--use-angle=vulkan`) una textura subida a la GPU por primera vez tarde (la hoja, las fichas, la etiqueta, que
+  aparecen en el pulso 8 o 30) salía negra; las capturas rápidas no lo muestran (hay que pedir 45 cuadros seguidos y
+  después uno de los tardíos). Arreglo: pasar el lienzo a `DataTexture` (`getImageData`, `flipY = true`, mipmaps) y
+  `renderer.initTexture` de todas al arrancar. No usar `initTexture` con `CanvasTexture`: salió peor.
+- Un canvas con esquinas redondeadas sobre `MeshBasicMaterial` sin alfa deja las esquinas negras: rellenar todo el lienzo.
+- **Cuadro 0 terminado y sin tomas quietas**: nada entra desde fuera del cuadro ni desde negro (el objeto ya está,
+  el título ya está puesto); la cámara «respira» siempre (suma de senos chicos sobre los resortes, función de `t`), la
+  luz recorre la pieza y lo que flota se mece. Con eso el cierre de 5 s medía 0 s quietos (cambio ≥ 300 px por cuadro).
 
 ## Verificar
 

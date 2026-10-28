@@ -6,6 +6,7 @@ Uso típico (desde el script de un video):
     pz = Pizarra(__file__)                # lee tiempos.js de la carpeta del video
     def escenas(pz, t): ...               # dibuja el instante t con pz.linea, pz.texto, etc.
     pz.main(escenas)                      # CLI: --capturas 3.5,40  |  --exportar [--fps 60]
+Autoprueba:  .venv/Scripts/python herramientas/pizarra.py --probar   (pizarra de 1 s en una carpeta temporal)
 
 Todo trazo acepta `p` (0..1): cuánto del trazo ya se dibujó. Así se "escribe" en la pizarra.
 El temblor de mano es determinista (sale de una semilla por trazo): el mismo t da el mismo cuadro.
@@ -18,6 +19,8 @@ import sys
 from pathlib import Path
 
 import cairo
+
+from color_mp4 import COLOR_709
 
 RAIZ = Path(__file__).resolve().parent.parent
 W, H = 1920, 1080
@@ -238,8 +241,9 @@ class Pizarra:
             self.cuadro(escenas, t).write_to_png(str(out / f"{self.nombre()}_{f'{t:g}'.replace('.', '-')}.png"))
         print(f"capturas: {len(lista)} en {out}")
 
-    def exportar(self, escenas):
-        salida = RAIZ / "render" / f"{self.nombre()}.mp4"; salida.parent.mkdir(exist_ok=True)
+    def exportar(self, escenas, salida=None):
+        # salida sólo la cambia --probar (escribe en una carpeta temporal, sin tocar render/)
+        salida = salida or RAIZ / "render" / f"{self.nombre()}.mp4"; salida.parent.mkdir(exist_ok=True)
         cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgra", "-s", f"{W}x{H}",
                "-r", str(FPS), "-i", "-"]
         audio = self.carpeta / "mezcla.wav"  # narración + ambiente (herramientas/sonido.py)
@@ -247,7 +251,7 @@ class Pizarra:
             audio = self.carpeta / "narracion.wav"
         if audio.exists():
             cmd += ["-i", str(audio), "-c:a", "aac", "-b:a", "160k"]
-        cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", str(salida)]
+        cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", *COLOR_709, str(salida)]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
         n = math.ceil(self.DUR * FPS)
         for f in range(n + 1):
@@ -268,3 +272,28 @@ class Pizarra:
             self.exportar(escenas)
         else:
             sys.exit("uso: video.py --capturas 3.5,40 | --exportar")
+
+
+def probar():
+    """Una pizarra de 1 s en una carpeta temporal (una línea que se dibuja + subtítulo + audio) → MP4 con color
+    etiquetado, 31 cuadros y audio (color_mp4.probar_salida); no toca render/."""
+    from color_mp4 import probar_salida
+
+    def hacer(_entrada, salida, t):
+        carpeta = t / "video"; carpeta.mkdir()
+        ti = {"total": 1.0, "orden": ["a"], "seg": {"a": {"inicio": .1, "dur": .6, "texto": "Prueba de la pizarra."}}}
+        (carpeta / "tiempos.js").write_text("window.TIEMPOS = " + json.dumps(ti) + ";", encoding="utf-8")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=330:duration=1.2",
+                        str(carpeta / "mezcla.wav")], check=True)
+        pz = Pizarra(carpeta / "video.py")
+        try:
+            pz.exportar(lambda p, tt: p.linea(300, 540, 1620, 540, p=seg(tt, 0, .8), semilla=1), salida=salida)
+        except SystemExit:
+            pass
+    return probar_salida("pizarra", hacer, cuadros=math.ceil(1.0 * FPS) + 1)
+
+
+if __name__ == "__main__":
+    if "--probar" in sys.argv:
+        sys.exit(0 if probar() else 1)
+    sys.exit(__doc__)

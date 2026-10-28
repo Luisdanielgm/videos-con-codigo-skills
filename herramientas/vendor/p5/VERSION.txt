@@ -1,0 +1,26 @@
+p5.js y p5.brush, bajados del registro oficial de npm (técnica 23, dibujo animado pintado a mano).
+Se usan sin modificar.
+
+p5.js 2.3.4  (licencia LGPL-2.1, NO MIT: ver LICENSE-p5.txt; se distribuye sin cambios, como archivo aparte)
+  paquete : https://registry.npmjs.org/p5/-/p5-2.3.4.tgz
+  repo    : github.com/processing/p5.js (campo "repository" del paquete)
+  tarball : sha1 1d488cef6e81b89dcc683bd697bb509da0ea5150 (igual al "shasum" del registro)
+            sha512 bU5oNunn4L51hFu3+b6+zAQj+sPIlVyY0JmUCjABVytYwjNwf06EKFiLQgU70z5HPW58qTHRf5G8vM8gNtfbng== (igual al "integrity")
+            sha256 af29afdfa8c5d1096fb1335d6160f7b17be12d1eb21e69782f47c57c05893a48
+  archivo : lib/p5.min.js -> p5.min.js
+            sha256 bb8b82b97fcbcd5bb2d5475d1b6a3904f3ab4ed01b821134fd8f1e7710fce559
+
+p5.brush 2.2.3  (licencia MIT, Alejandro Campos Uribe: ver LICENSE-p5.brush.md; pide p5 ^2.2)
+  paquete : https://registry.npmjs.org/p5.brush/-/p5.brush-2.2.3.tgz
+  repo    : github.com/acamposuribe/p5.brush
+  tarball : sha1 53bef83d2d1eb61e28b9ff5c5cd1f1535ef078f5 (igual al "shasum" del registro)
+            sha512 Jxl7Rl01StakZN7OnaY+HYLXvemeIiCnDzVz6qnvsABF8GunCBcQON7xUKZUjV1E/Ab7VIFSMOspmVzLO/ljTw== (igual al "integrity")
+            sha256 825c40933a72a752e95685bba1ff8beecf9316b22bbb786dd23d41709d07cd6f
+  archivo : dist/p5.brush.js (UMD, define window.brush y se registra como addon de p5) -> p5.brush.js
+            sha256 41c25108c69a8eb1cca500d68f3603593e33b53e90a773fc024a6cff461fc31a
+
+Licencias copiadas del mismo paquete:
+  LICENSE-p5.txt        sha256 eb2f25f8f165d5f20682c1ce7e99ce69144ecfd80fbed8c17dfd327ecd8b6cb6
+  LICENSE-p5.brush.md   sha256 cabbece1a276329fa28ab40f1c99af3af2b7852a329551a9a485b2199616583a
+
+Para volver a comprobarlos:  sha256sum herramientas/vendor/p5/*

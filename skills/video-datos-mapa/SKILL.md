@@ -53,6 +53,19 @@ calculan de verdad en pantalla (costo por hora, simulación Monte Carlo). Las ci
 - **Cifras que ruedan** con `t` redondeado y un tic real por barra; las de ejemplo, rotuladas.
 - Canción real, efectos reales y 60 fps (`video-lanzamiento`).
 
+## Recetas de `iart-ai/data-animation-skills` y `map-animation-skills` (MIT)
+
+- **Carrera de barras (ranking en el tiempo)**: los datos son filas dispersas (anuales o mensuales); entre filas se
+  interpola el **valor** con una curva suave, se ordena por el valor interpolado de ese cuadro y la `y` de cada barra sale de
+  ese rango, así un adelantamiento se desliza en vez de saltar. Los resortes dan peso a la barra que adelanta.
+- **Números que se leen**: facilitar el valor (no sólo la opacidad): `easeOutCubic` al asentarse en una cifra, lineal sólo
+  en un eje de tiempo (reloj, año). Redondear **antes** de dar formato, cifras tabulares (`font-variant-numeric:
+  tabular-nums`) y caja de dígitos fija para que el número no baile.
+- **Mapa «editorial» a 12 dibujos por segundo**: la capa gráfica (pines, rutas que se dibujan, rótulos) se actualiza cada 5
+  cuadros a 60 fps (cada 2 a 24) mientras la base y la cámara siguen suaves; si todo va a 12 parece que se perdieron
+  cuadros, no estilo. Camino vectorial: proyección real (`geoMercator().fitSize`) y **una sola** `projection([lng,lat])`
+  para pines, rutas y rótulos; el zoom es un `scale`/`translate` con el origen en el destino.
+
 ## Herramientas externas (opcional)
 
 - **Mixkit** (canción y efectos; bajar a `recursos/`).

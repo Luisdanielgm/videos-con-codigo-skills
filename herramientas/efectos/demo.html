@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Efectos deterministas</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #05070c; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas#c { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<!--
+  Muestra de los efectos de herramientas/efectos/. Servir desde la raíz del repo (python herramientas/servidor.py) y abrir:
+    demo.html?efecto=<nombre>&t=<segundos>   dibuja ese cuadro una sola vez (para capturas: window.LISTO = true)
+    demo.html?efecto=<nombre>                 lo reproduce con los controles de Reproductor
+    demo.html  o  ?efecto=todos                recorre todos, uno detrás de otro (también con &t=)
+  Nombres: disolver, armar, velocidad, velocidad3d, vidrio, physarum, grayscott, marmoleado, causticas.
+  window.DEMO: render(t), medir(t) → ms, huella() → SHA-256 de los píxeles, png() → dataURL.
+-->
+<script src="../reproductor.js"></script>
+<script src="disolver.js"></script>
+<script src="velocidad.js"></script>
+<script src="vidrio.js"></script>
+<script src="simulaciones.js"></script>
+<script type="module">
+const W = 1920, H = 1080;
+const lienzo = document.getElementById('c');
+// Cuadros idénticos (medido en Chrome): un lienzo 2D de GPU (el de siempre, sin willReadFrequently) dibuja
+// el texto grande con ±1–2 niveles de diferencia entre una página y otra, y un lienzo de CPU pasa a GPU (y cambia
+// los degradados de lo ya dibujado) la primera vez que se le pega con drawImage un lienzo de GPU grande (2D o
+// WebGL). Por eso: el lienzo del video de CPU (willReadFrequently) y nada de GPU pegado con drawImage; los
+// efectos WebGL devuelven su cuadro con readPixels. Así cada t da el mismo cuadro bit a bit.
+const ctx = lienzo.getContext('2d', { willReadFrequently: true });
+const Q = new URLSearchParams(location.search);
+
+function rotulo(nombre, detalle) {
+  ctx.save();
+  ctx.font = '600 26px system-ui, "Segoe UI", sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.75)';
+  ctx.textBaseline = 'top'; ctx.fillText(nombre, 48, 40);
+  ctx.font = '400 20px system-ui, "Segoe UI", sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.45)';
+  ctx.fillText(detalle, 48, 76);
+  ctx.restore();
+}
+function fondoOscuro() {
+  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#0b1020'); g.addColorStop(1, '#03050a');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+
+// ── las escenas de muestra: cada una es render(t) con t local (0 = empieza el efecto) ──
+const EFECTOS = {
+  disolver: { dur: 4.5, render(t) {
+    fondoOscuro();
+    Disolver.texto(ctx, t, { texto: 'Se deshace en polvo', fuente: '800 150px system-ui, "Segoe UI", sans-serif', x: 960, y: 520, desde: .6, hasta: 3.2, semilla: 7 });
+    rotulo('disolver.js', 'máscara de ruido + umbral de progreso + partículas (deshacer)');
+  } },
+  armar: { dur: 4.5, render(t) {
+    fondoOscuro();
+    Disolver.texto(ctx, t, { texto: 'Y se vuelve a armar', fuente: '800 150px system-ui, "Segoe UI", sans-serif', x: 960, y: 520,
+      color: '#ffd98a', brasa: '#7fd4ff', desde: .4, hasta: 3, semilla: 11, modo: 'armar', direccion: [-1, .2], viento: [-240, -90] });
+    rotulo('disolver.js', 'el mismo efecto con el tiempo espejado (armar)');
+  } },
+  velocidad: { dur: 5, render(t) {
+    fondoOscuro();
+    ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 1;
+    for (let x = 0; x <= W; x += 80) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    const bola = s => [960 + 760 * Math.sin(2.1 * s), 290 + 110 * Math.sin(4.2 * s)];
+    Velocidad.barrido(ctx, t, { posicion: bola, radio: 38, color: '#ff8a3d', obturador: 1 });
+    const cuadrado = y => s => ({ x: 960 + 640 * Math.sin(1.9 * s), y, ang: 5 * s });
+    const dib = (g, e) => {
+      g.translate(e.x, e.y); g.rotate(e.ang);
+      g.fillStyle = '#4ea1ff'; g.beginPath(); g.roundRect(-70, -70, 140, 140, 24); g.fill();
+      g.fillStyle = '#ffffff'; g.font = '800 64px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('A', 0, 4);
+    };
+    ctx.save(); dib(ctx, cuadrado(600)(t)); ctx.restore();        // sin desenfoque
+    Velocidad.copias(ctx, t, { estado: cuadrado(860), dibujar: dib, n: 14, peso: 'caja', margen: 110 });
+    ctx.font = '400 22px system-ui, sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.5)';
+    ctx.fillText('sin desenfoque', 48, 600); ctx.fillText('copias (14, obturador 360°)', 48, 860); ctx.fillText('barrido de un disco', 48, 290);
+    rotulo('velocidad.js', 'estela entre t − 1/fps y t, sin subcuadros de la escena');
+  } },
+  velocidad3d: { dur: 5, async preparar() {
+    const THREE = await import('../vendor/three.module.min.js');
+    const gl = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    gl.setPixelRatio(1); gl.setSize(W, H, false);
+    const escena = new THREE.Scene(); escena.background = new THREE.Color('#0b1020');
+    const cam = new THREE.PerspectiveCamera(40, W / H, .1, 100); cam.position.set(0, 1.2, 12); cam.lookAt(0, 0, 0);
+    escena.add(new THREE.HemisphereLight('#cfe0ff', '#202030', 1.2));
+    const sol = new THREE.DirectionalLight('#ffffff', 2.4); sol.position.set(3, 5, 4); escena.add(sol);
+    const geo = new THREE.IcosahedronGeometry(1, 6);
+    const conMancha = new THREE.MeshStandardMaterial({ color: '#ff8a3d', roughness: .35, metalness: .1 });
+    const sinMancha = new THREE.MeshStandardMaterial({ color: '#4ea1ff', roughness: .35, metalness: .1 });
+    const mancha = Velocidad.manchaThree(THREE, conMancha, { fuerza: 1, ruido: .4 });
+    const a = new THREE.Mesh(geo, conMancha), b = new THREE.Mesh(geo, sinMancha);
+    escena.add(a, b);
+    const pos = (s, y) => new THREE.Vector3(5.2 * Math.sin(2.3 * s), y + .5 * Math.sin(4.6 * s), 0);
+    const g = gl.getContext(), crudo = new Uint8Array(W * H * 4), img = new ImageData(W, H), fila = W * 4;
+    this.dibujar = t => {
+      a.position.copy(pos(t, -1.5)); b.position.copy(pos(t, 1.6));
+      mancha.actualizar(a, pos(t, -1.5).sub(pos(t - 1 / 30, -1.5)));
+      gl.render(escena, cam);
+      // readPixels (de abajo hacia arriba) → se voltean las filas → putImageData: el lienzo sigue siendo de CPU
+      g.readPixels(0, 0, W, H, g.RGBA, g.UNSIGNED_BYTE, crudo);
+      for (let y = 0; y < H; y++) img.data.set(crudo.subarray((H - 1 - y) * fila, (H - y) * fila), y * fila);
+      ctx.putImageData(img, 0, 0);
+    };
+  }, render(t) {
+    this.dibujar(t);
+    ctx.font = '400 22px system-ui, sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.5)';
+    ctx.fillText('sin mancha', 48, 360); ctx.fillText('con mancha (object smearing)', 48, 760);
+    rotulo('velocidad.js · three.js', 'manchaThree: los vértices de atrás se corren a la posición de t − 1/fps');
+  } },
+  vidrio: { dur: 6, render(t) {
+    // la escena de atrás: franjas que corren, una palabra grande y puntos
+    ctx.fillStyle = '#f4efe6'; ctx.fillRect(0, 0, W, H);
+    const cols = ['#e63946', '#f1c453', '#2a9d8f', '#1d3557', '#f4a261'];
+    ctx.save(); ctx.translate(960, 540); ctx.rotate(-.35);
+    for (let i = -14; i < 14; i++) { ctx.fillStyle = cols[(i + 70) % 5]; ctx.fillRect(i * 110 + (t * 90) % 550 - 275, -1400, 55, 2800); }
+    ctx.restore();
+    ctx.fillStyle = '#111'; ctx.font = '900 230px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Vidrio líquido', 960, 540); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    const ax = 300 + 330 * (1 - Math.cos(t * 1.05)), by = 300 + 60 * Math.sin(t * .9);
+    Vidrio.dibujar(ctx, lienzo, { formas: [
+      { x: ax, y: 360, w: 520, h: 360, radio: 70 },
+      { x: 1130, y: by, w: 460, h: 300, radio: 150 },
+      { x: 760, y: 800 - 40 * Math.sin(t * 1.4), w: 400, h: 130, radio: 65 },
+    ], fusion: 70, refraccion: 60, dispersion: .3, esmerilado: 0 });
+    rotulo('vidrio.js', 'SDF de rectángulos redondeados con unión suave, refracción con tres índices y luz de borde');
+  } },
+  physarum: { dur: 12, preparar() { this.sim = Simulaciones.physarum({ semilla: 3 }); }, render(t) {
+    this.sim.dibujar(ctx, t);
+    rotulo('simulaciones.js · physarum', 'moho que une las ciudades: 70 000 agentes, 45 pasos/s, clave cada 2 s');
+  } },
+  grayscott: { dur: 12, preparar() { this.sim = Simulaciones.grayScott({ semilla: 5 }); }, render(t) {
+    this.sim.dibujar(ctx, t);
+    rotulo('simulaciones.js · Gray–Scott', 'coral (f = 0,0545, k = 0,062), 480×270, 360 pasos/s, clave cada 2 s');
+  } },
+  marmoleado: { dur: 14.5, preparar() { this.sim = Simulaciones.marmoleado({ semilla: 2 }); }, render(t) {
+    this.sim.dibujar(ctx, t);
+    rotulo('simulaciones.js · marmoleado', 'gotas que conservan el área + tres pasadas de peine (vectorial)');
+  } },
+  causticas: { dur: 8, preparar() { this.sim = Simulaciones.causticas({ semilla: 4, brillo: .2 }); }, render(t) {
+    // fondo de piscina: azulejos
+    ctx.fillStyle = '#0f5b78'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#0a4660'; ctx.lineWidth = 4;
+    for (let x = 0; x <= W; x += 120) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y <= H; y += 120) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    this.sim.dibujar(ctx, t, 'lighter');
+    rotulo('simulaciones.js · cáusticas', 'rayos refractados por ondas con semilla; brillo = área antes / área después');
+  } },
+};
+const NOMBRES = Object.keys(EFECTOS);
+
+const pedido = Q.get('efecto') || 'todos';
+const lista = pedido === 'todos' ? NOMBRES : [pedido];
+if (!lista.every(n => EFECTOS[n])) throw new Error(`efecto desconocido: ${pedido} (hay: ${NOMBRES.join(', ')})`);
+for (const n of lista) if (EFECTOS[n].preparar) await EFECTOS[n].preparar();
+
+// línea de tiempo: uno detrás de otro
+const inicios = []; let total = 0;
+for (const n of lista) { inicios.push(total); total += EFECTOS[n].dur; }
+function render(t) {
+  let i = 0; while (i < lista.length - 1 && t >= inicios[i + 1]) i++;
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.clearRect(0, 0, W, H);
+  EFECTOS[lista[i]].render(t - inicios[i]);
+  ctx.restore();
+}
+async function huella() {
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const h = await crypto.subtle.digest('SHA-256', d);
+  return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function medir(t) {
+  const t0 = performance.now();
+  render(t);
+  ctx.getImageData(0, 0, 1, 1);          // obliga a terminar el dibujo (también el de WebGL)
+  return performance.now() - t0;
+}
+window.DEMO = { render, medir, huella, png: () => lienzo.toDataURL('image/png'), total, lista };
+
+if (Q.has('t')) {
+  window.MS_PRIMER_CUADRO = medir(Number(Q.get('t')));
+  window.LISTO = true;
+} else {
+  Reproductor.iniciar({ canvas: lienzo, render, duracion: total });
+  window.LISTO = true;
+}
+</script>
+</body>
+</html>

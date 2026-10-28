@@ -25,6 +25,11 @@ python herramientas/navegador.py capturas 02-threejs/red-neuronal 5,40,90,150,22
 python herramientas/navegador.py exportar 02-threejs/red-neuronal
 ```
 
+> **Una máquina o un objeto con el look «oscuro con brillo»** (sólidos biselados, cámara isométrica verdadera, un acento que
+> brilla, o un `.glb` propio limpiado y restilizado): no se arma desde cero con esta receta; usar el kit `herramientas/iso3d.js`
+> de la técnica 26 (`video-maquina-isometrica`, «Variante 3D real»), que ya trae el contrato `render(t)`, las guardias
+> (`iso3d.py --probar`) y el lector de `.glb` (este three.js local no trae `GLTFLoader`).
+
 ## Pasos
 
 1. **Guion**: mismas reglas que `video-html-canvas` (principiantes, una idea por frase, números en
@@ -71,23 +76,76 @@ python herramientas/navegador.py exportar 02-threejs/red-neuronal
 
 `herramientas/navegador.py` lanza Chrome sin `--disable-gpu` y con `--enable-unsafe-swiftshader`:
 usa la GPU si hay, y si no, WebGL por software. Si las capturas salen negras, revisar
-`render/navegador-capturas.log`. El MP4 de 3D pesa más que el de 2D (el del ejemplo salió de 145 MB a 60 fps);
-recomprimir con `ffmpeg -i entrada.mp4 -c:v libx264 -crf 27 -pix_fmt yuv420p -c:a aac salida.mp4` (así quedó el
-de `ejemplos/`, en 41 MB).
+`render/navegador-capturas-<puerto>.log` (queda sólo si la corrida tuvo un problema). El MP4 de 3D pesa más que el
+de 2D (el del ejemplo salió de 145 MB a 60 fps); recomprimir con
+`ffmpeg -i entrada.mp4 -c:v libx264 -crf 27 -pix_fmt yuv420p -c:a aac salida.mp4` (así quedó el de `ejemplos/`, en 41 MB).
 
 ## Verificar
 
 - `navegador.py capturas` con código 0 y ninguna captura negra.
 - Ninguna captura con los defectos de `exportar-video` ni de la lista de 3D; MP4 ≈ `TIEMPOS.total`; `saltos.py`.
 
+## three.js r186 (WebGPU/TSL), opcional
+
+Los videos que ya existen siguen con r170 (`three.module.min.js`); r186 es sólo para videos nuevos que necesiten
+**materiales y posprocesado en TSL** (bloom, DOF, desenfoque…) o **cientos de miles de partículas en un compute
+shader**. Si no hace falta nada de eso, r170 alcanza. **No viene en este paquete**: bajarlo del paquete `three@0.186`
+de npm (`build/three.webgpu.js`, `build/three.tsl.js`, `build/three.core.js` y los addons que se usen, de
+`examples/jsm/`; MIT) a `herramientas/vendor/three-r186/`, y anotar la versión y el sha256 de cada archivo en un
+`VERSION.txt`. Una página de prueba con TSL + bloom + 131 mil partículas en compute anduvo con las medidas de abajo.
+
+- **Importar** (r186 ya no trae `.min.js`; los módulos se piden entre sí por nombre): importmap con
+  `"three/webgpu": "../../herramientas/vendor/three-r186/three.webgpu.js"`, `"three/tsl": "…/three.tsl.js"` y
+  `"three/addons/": "…/three-r186/addons/"`. Un addon nuevo se copia del paquete y su sha256 va a `VERSION.txt`.
+- **Navegador**: con los parámetros de siempre de `navegador.py` (sin `VIDEOS_CHROME_ARGS`) Chrome sin ventana dio
+  **WebGPU en una Intel UHD 630**. Una NVIDIA de la misma máquina no se consiguió para WebGPU: `--use-angle=vulkan
+  --enable-features=Vulkan` deja sin adaptador WebGPU (cae a WebGL2 en la NVIDIA, y es más lento),
+  `--use-webgpu-power-preference=force-high-performance` también, y `--use-adapter-luid` cuelga la página.
+- **Respaldo**: si no hay WebGPU, el `WebGPURenderer` cae solo a WebGL2 (avisa en consola); `forceWebGL: true` lo
+  fuerza. El compute anda en los dos (en WebGL2 por transform feedback). Mismo cuadro, píxeles algo distintos.
+- **Tiempos** (1920×1080, 131 mil partículas, bloom; varía con la carga de la GPU): WebGPU 25–41 ms por cuadro,
+  WebGL2 32–69 ms, más 50–150 ms del JPEG del reproductor. El primer cuadro tarda 1–3 s (compila los shaders).
+
+Trampas (todas medidas con la página de prueba):
+1. **`await renderer.init()` antes de nada.** Después `render()` es síncrono y el lienzo se copia con `drawImage`
+   en el mismo turno, así que `render(t)` sigue el contrato del reproductor. `renderAsync` está obsoleto en r186.
+2. **El posprocesado se congela si se dibujan varios t en el mismo turno**: `pass()` y `bloom()` se actualizan una
+   vez por «frame» de three, que sólo avanza con `requestAnimationFrame`. Subcuadros de desenfoque, capturas seguidas
+   o una medición salen con la escena del primer t. Arreglo: `renderer._nodes.nodeFrame.update()` al principio de
+   cada `render(t)` (campo privado: revisarlo al cambiar de versión), o `updateBeforeType = THREE.NodeUpdateType.RENDER`
+   en el pass y el bloom (público, pero dibuja la escena dos veces: 72 contra 41 ms).
+3. **Compute sin estado**: la posición de cada partícula sale de `(instanceIndex, t)`, nunca integrando el cuadro anterior.
+4. **En WebGL2 el dibujo puede leer el búfer de compute del turno anterior** (son dos que se turnan): el mismo t salía
+   distinto según cuántos cuadros iban. Arreglo: llamar `renderer.compute(...)` dos veces por cuadro cuando `!renderer.backend.isWebGPUBackend`.
+5. **Verificar el determinismo**: el hash de los píxeles de un mismo t tiene que dar igual con otros t en medio y en
+   dos sesiones del navegador (`determinismo.py` compara el mismo t en orden y en orden inverso).
+
 ## Nivel de estudio
 
+Lo que le falta al ejemplo:
 - **Materiales ricos**: `MeshPhysicalMaterial` (clearcoat, transmisión, iridiscencia) con un entorno de estudio
   propio (`PMREMGenerator.fromScene`) y brillo barato en 2D (ver `video-producto-3d`).
 - **Geometría de verdad** (extrusión con bisel) en vez de cajas, esferas o planos apilados.
 - **Sin fundido a oscuro entre escenas**: la cámara viaja o un objeto se vuelve el siguiente; si el viaje es
   largo, corte seco (otra lista de resortes que arranca en ese instante).
 - Narrador con Supertonic, canción que baja con la voz, efectos reales y 60 fps, como en `video-html-canvas`.
+
+## Toma firma, cámara de cine y trampas (de la plantilla 3D de prompt-motion.com)
+
+- **Primero la toma firma**: antes de modelar nada se decide y se describe la imagen que la gente recordaría (el plano
+  del póster), y todo el video se construye hacia ella; se prueba esa toma sola antes que las demás.
+- **Un movimiento de cámara nombrado por toma** (dolly, grúa, órbita, empuje, cambio de foco), escrito en la columna
+  «Cámara» de la tabla de tomas; nunca `OrbitControls` ni una cámara que deriva sin intención.
+- **Luz de tres puntos** (principal, relleno y contorno) más el entorno PMREM y ACES que ya trae el ejemplo; **lo que
+  se golpea se mueve** (un choque sin reacción del objeto se ve falso).
+- **Tres trampas que ya costaron renders en otros proyectos**: (1) **sesgo de sombra**: `shadow.bias` ≈ −0,0005 y
+  `normalBias` ≈ 0,02 contra las rayas («acné» de sombra); (2) **planos cercano y lejano ajustados** a la escena
+  (`near` tan grande y `far` tan chico como se pueda): con 0,01–10000 la profundidad parpadea; (3) **semilla en todo
+  azar** (posiciones, partículas, ruido): `Math.random` rompe el determinismo de `render(t)`.
+- **Recorrido guiado por una instalación real** (receta: el centro de datos, la línea del primer
+  down): la cámara es el guía y va de parada en parada; en cada una, **un rótulo corto (1–4 palabras) y una cosa que
+  funciona** (el ventilador gira, el líquido circula); entre paradas, un viaje de cámara sin corte. Lo real se modela
+  con sus proporciones verdaderas y la fuente en `brief.md`. Todavía no tiene ejemplo en el repo.
 
 ## Herramientas externas (opcional)
 

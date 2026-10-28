@@ -102,9 +102,12 @@ window.Reproductor = (() => {
 
   async function exportar(canvas, render, duracion, sub = 1, antes = null) {
     const video = rutaVideo();
-    await enviar(`/export/inicio?video=${encodeURIComponent(video)}&fps=${FPS}`);
-    const n = Math.ceil(duracion * FPS);
-    for (let f = 0; f <= n; f++) {
+    // &desde=…&hasta=…&parte=nombre: exporta sólo ese tramo a render/<video>_<parte>.mp4 (para ir viendo por partes)
+    const parte = Q.get('parte') ? `&parte=${encodeURIComponent(Q.get('parte'))}` : '';
+    const sinAudio = Q.get('sin_audio') ? '&sin_audio=1' : '';     // tramos de video sin pista (navegador.py los une)
+    await enviar(`/export/inicio?video=${encodeURIComponent(video)}&fps=${FPS}${parte}${sinAudio}`);
+    const n = Math.ceil(Math.min(duracion, Number(Q.get('hasta') ?? duracion)) * FPS), f0 = Math.round(Number(Q.get('desde') ?? 0) * FPS);
+    for (let f = f0; f <= n; f++) {
       if (antes) await antes(f / FPS);
       dibujarCuadro(canvas, render, f / FPS, sub);
       const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', .92));

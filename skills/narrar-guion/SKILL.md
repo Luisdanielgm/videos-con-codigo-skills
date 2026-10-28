@@ -70,6 +70,29 @@ Piper; si no → Kokoro. Para escucharlas todas con la misma frase: `.venv/Scrip
 5. **ffmpeg** en el PATH. Para `tono` hace falta un ffmpeg con `rubberband` (las compilaciones «full» lo traen:
    `ffmpeg -filters | grep rubberband`).
 
+## Estructura y tiempos de un explicador (de `explainer-video-skills` e `iart-ai`, MIT)
+
+- **Una idea central** que quien mira pueda repetir en una frase; lo que no la sirve se corta, no se achica. El guion
+  se escribe y se mide **antes** del storyboard: es más barato cortar una frase que una escena armada. Lo visual ilustra la
+  frase que se dice, nunca se adelanta.
+- **Arco** (y su parte del tiempo): problema ≈ 20 % (el dolor, con sus palabras) → solución ≈ 15 % (en una línea) →
+  cómo funciona ≈ 45 % (1 a 3 pasos concretos) → resultado y una sola acción ≈ 20 %. Antes del «cómo», hacer sentir el costo
+  del problema. Ritmo: rápido y algo tenso en problema y costo, una pausa de alivio en la solución, **lo más lento en el
+  cómo** (cada paso se sostiene para leerse), cierre abierto y sostenido.
+- **Una analogía por video**, del mundo de quien mira (una fila, un termostato), usada igual en lo visual y en las
+  palabras; si necesita su propia explicación, es la equivocada. Cambiar de analogía a mitad reinicia la comprensión.
+- **Medidas de voz**: ≈ 2,3 palabras por segundo (≈ 140 por minuto; líneas técnicas ≈ 2,0); un video de 60 s son ≈ 138
+  palabras. Duración de una escena = palabras / 2,3 + ≈ 0,4 s de aire; una escena sin voz necesita ≥ 1,0 s para
+  registrarse. (Con `narrar.py` la duración real sale del audio: esto sirve para escribir el guion a la medida.)
+- **Subtítulos** (la mayoría mira sin sonido): ≤ 2 líneas, ≤ 42 caracteres por línea, ≥ 1,0 s en pantalla y fuera antes
+  de que empiece la frase siguiente; salen del mismo arreglo de tiempos que los cortes, así no se desfasan.
+- **Un solo sistema de estilo**: una escala tipográfica, un color por significado (nunca reasignado) y una curva de
+  movimiento fijados antes de la escena 2; las mismas entradas y salidas en todas.
+- **Presentación o pitch en video**: cada lámina dura lo que dura su audio más un margen chico (nunca a ojo); el título
+  es la afirmación («la fuga de clientes es nuestro impuesto al crecimiento»), no la etiqueta («Fuga»); gancho en los
+  primeros ~5 s (una pregunta o una cifra, no una agenda ni un logo); arco problema → idea que nadie ve → solución →
+  prueba → una petición; el problema debe aterrizar antes de mostrar la solución.
+
 ## Comando
 
 ```

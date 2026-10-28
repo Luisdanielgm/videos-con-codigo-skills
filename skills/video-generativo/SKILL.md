@@ -22,6 +22,24 @@ VIDEOS_PARAMS="palabra=luz" .venv/Scripts/python herramientas/navegador.py expor
 La salida se llama siempre `render/20-generativo_semilla.mp4`: renombrarla por palabra. Con 60 fps:
 `VIDEOS_PARAMS="palabra=luz&fps=60&sub=4"`.
 
+## Receta «resumen del año» (`wrapped-video`, `iart-ai`, MIT; ejemplo no publicado)
+
+Ejemplo (24,6 s, vertical): 7 tarjetas con barrido circular entre ellas; los datos salen de una fila `{nombre, semilla, color}`
+que se cambia por la dirección (`?nombre=…&semilla=…&color=ambar|menta|coral`), con mulberry32 y **un validador que lanza error si
+algo no cuadra** (suma de meses = total = suma de etiquetas; la racha coincide con las celdas). Determinismo 8 de 8 sin
+`willReadFrequently` (ver `exportar-video`).
+
+Una plantilla × una tabla de datos → un video distinto por fila (el mismo patrón que la semilla: aquí la semilla es el
+registro). Reglas: todo texto, cifra, nombre y color sale de los datos, nunca escrito a mano; 5–7 escenas de 2,5–4 s en
+**orden creciente** (lo menor primero, la cifra más grande y más personal casi al final, nunca abrir con ella);
+escribirle a la persona («escuchaste 412 artistas»), con su nombre y color en los primeros 2 s; cada escena se lee en
+menos de 2 s y se ve bien **congelada** (esa captura es la que se comparte); la tarjeta final (nombre, @usuario, logo, una
+acción) queda quieta ≥ 2 s. Vertical 1080×1920 con todo lo importante en el 80 % central de la altura, fuera del 12 %
+de arriba y del 18 % de abajo. Cada fila se valida contra un esquema antes de renderizar y el archivo lleva el nombre del
+registro. En este repo cada video es una corrida de `navegador.py`: la plantilla debería recibir la fila por la dirección, como
+`?palabra=` en `20-generativo/semilla` (la dirección con la fila hay que pasarla en `VIDEOS_PARAMS`), y las exportaciones
+corren **de a una** por máquina; el lote es un guion de shell con una corrida por fila.
+
 ## Cómo funciona
 
 - **Semilla**: FNV-1a de la palabra (sin distinguir mayúsculas) → `mulberry32`. De ahí salen, en orden fijo:

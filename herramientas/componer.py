@@ -7,6 +7,7 @@ Uso:
       --borrador          toma render/blender_borrador (720p, se agranda) → <nombre>_borrador.mp4
       --tramo 26.8 47.3   monta sólo ese tramo (segundos), con su audio → <nombre>_26.8-47.3.mp4
       --ia                los cuadros de la escena con los niños de Hunyuan3D (render/…_ia) → <nombre>_ia….mp4
+    .venv/Scripts/python herramientas/componer.py --probar      # montaje de 1 s en una carpeta temporal (no toca render/)
 
 Lee de la carpeta del video: tiempos.js, mezcla.wav (o narracion.wav) y montaje.json:
     {"titulo": ["El faro", "un cuento propio", "Capítulo 1 · La tormenta"],
@@ -23,6 +24,8 @@ import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+
+from color_mp4 import COLOR_709
 
 RAIZ = Path(__file__).resolve().parent.parent
 W, H, FPS = 1920, 1080, 30
@@ -129,11 +132,12 @@ class Montaje:
             self.cuadro(Image.open(f), t).save(out / f.name, quality=92); n += 1
         print(f"capturas compuestas: {n}")
 
-    def video(self, borrador=False, tramo=None, ia=False):
-        cuadros = RAIZ / "render" / (("blender_borrador" if borrador else "blender_cuadros") + ("_ia" if ia else ""))
+    def video(self, borrador=False, tramo=None, ia=False, cuadros=None, salida=None):
+        # cuadros y salida sólo los cambia --probar (trabaja en una carpeta temporal, sin tocar render/)
+        cuadros = cuadros or RAIZ / "render" / (("blender_borrador" if borrador else "blender_cuadros") + ("_ia" if ia else ""))
         nombre = f"{self.carpeta.parent.name}_{self.carpeta.name}" + ("_ia" if ia else "") + ("_borrador" if borrador else "")
         if tramo: nombre += f"_{tramo[0]:g}-{tramo[1]:g}"
-        salida = RAIZ / "render" / f"{nombre}.mp4"
+        salida = salida or RAIZ / "render" / f"{nombre}.mp4"
         audio = self.carpeta / "mezcla.wav"
         if not audio.exists(): audio = self.carpeta / "narracion.wav"
         n = math.ceil(self.DUR * FPS) + 1
@@ -143,7 +147,7 @@ class Montaje:
             sys.exit(f"faltan {len(faltan)} cuadros (el primero: {faltan[0]}); terminar el render antes de montar")
         cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
                *(["-ss", f"{(f0 - 1) / FPS:.3f}"] if tramo else []), "-i", str(audio), "-c:a", "aac", "-b:a", "160k", "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-               "-pix_fmt", "yuv420p", "-shortest", str(salida)]
+               "-pix_fmt", "yuv420p", *COLOR_709, "-shortest", str(salida)]
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
         for f in range(f0, f1 + 1):
             img = Image.open(cuadros / f"c_{f:04d}.jpg")
@@ -157,7 +161,31 @@ class Montaje:
         sys.exit(0 if ok else 1)
 
 
+def probar():
+    """Un montaje de 1 s en una carpeta temporal: 31 cuadros JPEG + subtítulo + audio → MP4 con color etiquetado,
+    31 cuadros y audio (color_mp4.probar_salida); no toca render/."""
+    from color_mp4 import probar_salida
+
+    def hacer(_entrada, salida, t):
+        carpeta, cuadros = t / "video", t / "cuadros"
+        carpeta.mkdir(); cuadros.mkdir()
+        ti = {"total": 1.0, "orden": ["a"], "seg": {"a": {"inicio": .1, "dur": .6, "texto": "Prueba del montaje."}}}
+        (carpeta / "tiempos.js").write_text("window.TIEMPOS = " + json.dumps(ti) + ";", encoding="utf-8")
+        (carpeta / "montaje.json").write_text("{}", encoding="utf-8")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=330:duration=1.2",
+                        str(carpeta / "mezcla.wav")], check=True)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=s={W}x{H}:r={FPS}:d=1.04",
+                        "-frames:v", "31", "-start_number", "1", str(cuadros / "c_%04d.jpg")], check=True)
+        try:
+            Montaje(carpeta).video(cuadros=cuadros, salida=salida)
+        except SystemExit:
+            pass
+    return probar_salida("componer", hacer, cuadros=31)
+
+
 if __name__ == "__main__":
+    if "--probar" in sys.argv:
+        sys.exit(0 if probar() else 1)
     m = Montaje(sys.argv[1])
     if "--capturas" in sys.argv: m.capturas()
     else:

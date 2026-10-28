@@ -9,6 +9,8 @@
  *     dispositivos: { lap: { tipo: 'laptop', x: 410, y: 170, w: 1100 }, tel: { tipo: 'telefono', cx: 1480, cy: 560, h: 800 } },
  *     guion: [ [pulso, accion, ...argumentos], ... ],
  *     pantallaCompleta(t, api),   // opcional: lo que se dibuja encima sin cámara (títulos, logo final)
+ *     entradaNegra: false,        // opcional: sin el fundido desde el fondo en los primeros 0,4 s (el cuadro 0 ya es una
+ *                                 // composición: ponlo en los videos nuevos; por omisión sigue el fundido de siempre)
  *     duracion,                   // en pulsos
  *   })
  *
@@ -210,7 +212,8 @@ window.Pantalla = (() => {
       ctx.restore();
       texto(t);
       if (cfg.pantallaCompleta) { ctx.save(); cfg.pantallaCompleta(t, api); ctx.restore(); }
-      const neg = Math.max(1 - clamp(t / .4), clamp((t - (DUR - .7)) / .7));
+      // entradaNegra:false = el cuadro 0 ya es una composición terminada (barra de calidad); por omisión, como siempre
+      const neg = Math.max(cfg.entradaNegra === false ? 0 : 1 - clamp(t / .4), clamp((t - (DUR - .7)) / .7));
       if (neg > 0) { ctx.globalAlpha = neg; ctx.fillStyle = C.fondo1; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
     }
     Reproductor.iniciar({ canvas: cv, render, duracion: DUR, audio: 'musica.wav', desenfoque: 4 });

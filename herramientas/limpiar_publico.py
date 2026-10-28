@@ -35,10 +35,14 @@ PARCHES = PRIVADO / "parches"
 # qué se copia: (patrón en el origen, carpeta en el destino). El destino conserva la ruta relativa, salvo las
 # skills, que pasan de .claude/skills/ a skills/.
 GRUPOS = [
-    (".claude/skills/*/SKILL.md", lambda r: "skills/" + r[len(".claude/skills/"):]),
+    (".claude/skills/*/*.md", lambda r: "skills/" + r[len(".claude/skills/"):]),
     ("herramientas/*.py", None),
     ("herramientas/*.js", None),
     ("herramientas/vendor/three.module.min.js", None),
+    ("herramientas/vendor/p5/*", None),             # p5.js (LGPL-2.1) y p5.brush (MIT), con sus licencias
+    ("herramientas/efectos/*.js", None),            # efectos compartidos de navegador (sin sus capturas)
+    ("herramientas/efectos/demo.html", None),
+    ("herramientas/efectos/probar.py", None),
     # código de los ejemplos que se publican (sin audio: la narración se regenera y la música es de terceros)
     ("01-html-canvas/red-neuronal/*", None),
     ("02-threejs/red-neuronal/*", None),
@@ -64,7 +68,10 @@ GRUPOS = [
 # nunca se copian: audio (narración propia que se regenera; mezclas con música de terceros), registros,
 # imágenes crudas y pruebas sueltas atadas a una escena privada
 EXCLUIR = ["*.wav", "*.mp3", "*.mp4", "*.webm", "*.log", "*/crudas/*", "mezcla_v*",
-           "herramientas/prueba_voces.py", "herramientas/prueba_voces2.py"]
+           "herramientas/prueba_voces.py", "herramientas/prueba_voces2.py",
+           # herramientas internas del proyecto de origen (su bitácora, su cola y su galería): no sirven fuera
+           "herramientas/bitacora.py", "herramientas/medir_sesion.py", "herramientas/galeria_marketing.py",
+           "herramientas/cola_render.py", "herramientas/clasificatorio.py"]
 BINARIOS = {".png", ".jpg", ".jpeg", ".gif", ".mp4", ".wav", ".mp3", ".glb", ".blend", ".pdf", ".webm", ".ico", ".woff2",
             ".tra", ".tes"}                             # datos: se copian tal cual
 

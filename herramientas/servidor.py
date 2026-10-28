@@ -1,6 +1,7 @@
 """Servidor local del proyecto: sirve los archivos y recibe cuadros para exportar o revisar.
 
 Uso:  python herramientas/servidor.py [puerto]      (por omisión 8790)
+      python herramientas/servidor.py --probar      (exporta 30 cuadros de prueba en una carpeta temporal y revisa el MP4)
 
 - GET  /...                         archivos del proyecto.
 - POST /export/inicio?video=<ruta>&fps=30   abre ffmpeg; el audio sale de <ruta>/mezcla.wav (o narracion.wav) si existe.
@@ -17,6 +18,8 @@ import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+from color_mp4 import COLOR_709
 
 RAIZ = Path(__file__).resolve().parent.parent
 RENDER = RAIZ / "render"
@@ -39,6 +42,11 @@ class Manejador(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(cuerpo)
 
+    def do_GET(self):
+        if urlparse(self.path).path == "/export/estado":  # lo lee el vigilante de navegador.py: cuadros recibidos
+            return self.responder({"cuadros": estado["cuadros"]})
+        super().do_GET()
+
     def do_POST(self):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
@@ -49,7 +57,7 @@ class Manejador(SimpleHTTPRequestHandler):
             video = RAIZ / q["video"]
             RENDER.mkdir(exist_ok=True)
             # el nombre lleva la técnica: 01-html-canvas/red-neuronal → 01-html-canvas_red-neuronal.mp4
-            salida = RENDER / f"{q['video'].strip('/').replace('/', '_')}.mp4"
+            salida = RENDER / f"{q['video'].strip('/').replace('/', '_')}{'_' + q['parte'] if q.get('parte') else ''}.mp4"
             cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", q.get("fps", "30"),
                    "-c:v", "mjpeg", "-i", "-"]
             audio = video / "mezcla.wav"  # narración + ambiente (herramientas/sonido.py)
@@ -57,9 +65,9 @@ class Manejador(SimpleHTTPRequestHandler):
                 audio = video / "narracion.wav"
             if not audio.exists():
                 audio = video / "musica.wav"  # comerciales: la música por cálculo (herramientas/musica.py)
-            if audio.exists():
+            if audio.exists() and not q.get("sin_audio"):    # sin_audio: tramos de video; navegador.py pega el audio entero
                 cmd += ["-i", str(audio), "-c:a", "aac", "-b:a", "160k"]
-            cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-shortest", str(salida)]
+            cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", *COLOR_709, "-shortest", str(salida)]
             estado.update(ffmpeg=subprocess.Popen(cmd, stdin=subprocess.PIPE), salida=salida, cuadros=0)
             return self.responder({"ok": True, "salida": str(salida)})
         if url.path == "/export/cuadro":
@@ -85,7 +93,8 @@ class Manejador(SimpleHTTPRequestHandler):
             (carpeta / f"{q['nombre']}.jpg").write_bytes(cuerpo)
             return self.responder({"ok": True})
         if url.path == "/capturas/fin":
-            (RENDER / "capturas" / ".listo").write_text(cuerpo.decode() or "{}")
+            # una marca por servidor (por puerto): dos corridas de capturas a la vez no se cortan entre sí
+            (RENDER / "capturas" / f".listo-{self.server.server_address[1]}").write_text(cuerpo.decode() or "{}")
             return self.responder({"ok": True})
         self.responder({"error": "ruta desconocida"}, 404)
 
@@ -93,7 +102,49 @@ class Manejador(SimpleHTTPRequestHandler):
         pass
 
 
+def probar():
+    """La exportación del navegador sin navegador: un servidor en un puerto libre, con RAIZ y RENDER en una carpeta
+    temporal (no toca render/), recibe 30 cuadros JPEG como los manda reproductor.js y cierra; el MP4 tiene que salir
+    con color etiquetado, 30 cuadros y el audio de mezcla.wav (color_mp4.probar_salida)."""
+    import shutil
+    import threading
+    import urllib.request
+    from color_mp4 import probar_salida
+    global RAIZ, RENDER
+
+    def hacer(_entrada, salida, t):
+        global RAIZ, RENDER
+        RAIZ, RENDER = t, t / "render"
+        (t / "video").mkdir()
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=330:duration=1.2",
+                        str(t / "video" / "mezcla.wav")], check=True)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=1", "-q:v", "3",
+                        str(t / "c_%02d.jpg")], check=True)
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), Manejador)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+        post = lambda ruta, datos=b"": json.loads(urllib.request.urlopen(
+            urllib.request.Request(base + ruta, data=datos, method="POST"), timeout=60).read())
+        try:
+            post("/export/inicio?video=video&fps=30")
+            for jpg in sorted(t.glob("c_*.jpg")):
+                post("/export/cuadro", jpg.read_bytes())
+            r = post("/export/fin")
+            if r.get("ok"):
+                shutil.copy(r["salida"], salida)
+        finally:
+            srv.shutdown()
+
+    try:
+        return probar_salida("servidor (exportación del navegador)", hacer, cuadros=30)
+    finally:
+        RAIZ = Path(__file__).resolve().parent.parent
+        RENDER = RAIZ / "render"
+
+
 if __name__ == "__main__":
+    if "--probar" in sys.argv:
+        sys.exit(0 if probar() else 1)
     puerto = int(sys.argv[1]) if len(sys.argv) > 1 else 8790
     print(f"sirviendo {RAIZ} en http://localhost:{puerto}")
     # con hilos: un GET de un archivo no bloquea el envío de cuadros (la página los manda de a uno)

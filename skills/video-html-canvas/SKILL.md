@@ -49,7 +49,8 @@ es opcional: `mezcla.json` apunta a una canción de Mixkit en `recursos/musica/`
 - `render(t)` dibuja el instante `t` **desde cero y de forma determinista**: sin `Math.random()`
   (usar un generador con semilla), sin estado que dependa del cuadro anterior. Así se puede exportar
   y revisar cualquier instante.
-- **Todo se ubica relativo a la narración**, nunca con segundos fijos. `Reproductor.ayudantes(TIEMPOS)` da:
+- **Todo se ubica relativo a la narración**, nunca con segundos fijos ni con una grilla de pulsos: en un
+  narrado la coreografía va **por frases**, y la música se acomoda debajo. `Reproductor.ayudantes(TIEMPOS)` da:
   - `A(id)` inicio de la frase, `D(id)` duración, `F(id, f)` instante en la fracción `f` de la frase.
   - `P(t, id, f0, f1)` avance suavizado de 0 a 1 entre dos fracciones de la frase.
   - `vis(t, desde, hasta)` visibilidad de una escena que abarca varias frases (con fundidos); `SIG(id)` inicio
@@ -67,6 +68,72 @@ es opcional: `mezcla.json` apunta a una canción de Mixkit en `recursos/musica/`
   la pantalla muestra 71 % antes o al mismo tiempo.
 - Cada recorrido animado llega a su final (si va de 0 a N capas, el valor final supera N).
 - Porcentajes y etiquetas nunca encima de barras, cables u otras etiquetas.
+
+## Dirección de un narrado (reglas finas)
+
+Recetas tomadas de videos y guías públicas (citadas en cada punto).
+- **≥ 400 ms de quietud cuando hay voz**: mientras la voz dice la idea, lo que la muestra está quieto al menos
+  400 ms para que se pueda mirar; el movimiento va entre ideas (al principio o al final de la frase, `P(t, id, 0, .3)`).
+- **La metáfora tiene que contar sola**: sin voz ni subtítulos, alguien que no leyó el guion tiene que poder decir
+  qué pasa (referencia: el video sin texto de @TheSpacerr, una figura con un hilo a una esfera que crece hasta
+  envolverla). Si la imagen sólo acompaña a la voz, falta la metáfora.
+- **Simular lo real en vez de dibujarlo**: si se habla de un paseo al azar, una caída o una red que aprende, la
+  imagen sale de calcularlo de verdad (con semilla y paso fijo, en función de `t`), no de una curva a ojo.
+- **Cambios de escala con un zoom continuo de potencias de diez**: una sola cámara que acerca de forma
+  exponencial (la escala es `10^k`, con `k` que avanza parejo), cada tramo dura en proporción a `log10` del
+  zoom que recorre, y una **regla de escala** en pantalla («1 m», «1 mm», «1 µm») que cambia con él.
+
+## Variante Kurzgesagt (escalas y mecanismos en formas planas)
+
+Para explicar **escalas** («¿qué hay adentro?»: de la hoja a la célula, del píxel al modelo) y **mecanismos que no se ven**
+(defensas del cuerpo, una red, la energía): la idea se vuelve un objeto plano en un mundo que se puede acercar sin fin, y la
+cámara viaja entre escalas. **No** para personas o hechos reales con pruebas (eso es la «mesa con evidencia» de
+`video-archivo`) ni para los pasos de un razonamiento (pizarra).
+
+- **Primero la metáfora**: cada frase abstracta se escribe como un objeto (célula, engranaje, tubería, ciudad, gota). Si
+  una frase no tiene objeto, no se tapa el hueco con una esfera brillante y dos etiquetas.
+- **Formas**: planas, sin contorno, todo redondeado. Sombra = el mismo color un escalón más oscuro, en una franja abajo a
+  la derecha (desplazar la forma dentro de sí misma ≈ 10 px); luz = un borde fino claro arriba a la izquierda. Lo que
+  brilla lleva su halo radial. **Un fondo oscuro con 2–3 acentos saturados que contrastan** (naranja contra azul, cian
+  contra magenta), nunca gris para sombrear. El violeta oscuro con estrellas del original **no**: es lo primero que delata
+  «hecho por IA» y está en los prohibidos (`video-lanzamiento`); fondo tinta o azul marino plano.
+- **Profundidad**: 4–6 capas con parallax (estrellas 0,05 · lejos 0,3 · medio 0,65 · sujeto 1,0 · frente 1,5, oscuro y
+  desenfocado). La capa se desplaza según su factor y se escala con `zoom^factor`: al acercar mucho, lo lejano casi no se
+  mueve.
+- **Movimiento**: el sujeto cambia de estado en cada frase (aparece, se transforma, se entra en él, se aleja) y **después
+  se queda quieto** (encaja con los ≥ 400 ms de quietud de arriba). Lo que no para es el ambiente: estrellas que titilan,
+  partículas que derivan; nada de «todo respira». Curva de la casa: arranque y llegada muy suaves con el medio rápido,
+  `cubic-bezier(.75,0,.25,1)`. Un rótulo que salta llega al 90 % en 0,25 s, se pasa a ≈ 108 % y vuelve en ≈ 0,5 s
+  (`M.resorte` con `amort` ≈ 0,5). Escalonado: los de la misma clase 10–20 cuadros a 60 fps; las partes de un cuerpo 3–4.
+- **Atravesar de una escala a otra** (la firma): el zoom es logarítmico (la regla de «Cambios de escala» de arriba). Antes
+  de entrar, el objeto elegido se queda quieto ≥ 0,3 s y se ilumina, para que se sepa adónde se va. Después la cámara se
+  lanza hacia él hasta que su color llena el cuadro y del otro lado está la escena nueva (≈ 1–1,4 s, rápido en el medio:
+  `expoInOut` o la curva de la casa, **no** `expo`, que en el primer cuadro ya salta media escala). Variante: entrar por una
+  «ventana» (un círculo que crece y deja ver la escena siguiente). Al alejarse, arranque rápido y cola larga. **Cada escala
+  se vuelve a dibujar en su zoom**: ampliar la imagen de la escala anterior se ve en mosaico.
+- **Ritmo**: tomas de 7–9 s, pero algo cambia en la imagen cada 4,6–6,7 s; el corte cae 0–0,2 s antes de la frase nueva.
+  Un rótulo = una línea fina que sale del objeto + un texto que se escribe a ≈ 40 letras por segundo; queda ≈ 3 s y se borra.
+
+Gramática de huashu-art-motion (alchaincyf, MIT), `references/动画语法/y1_kurzgesagt.md`, con palabras propias; sus cifras
+salen de medir tres videos de Kurzgesagt y del curso oficial. Con átomos reales en vez de formas planas: `video-ciencia-real`.
+
+## Receta 2.5D isométrica (de `isometric-animation`, `iart-ai`, MIT)
+
+Ejemplo propio (24,7 s, no publicado): una isla de 8×8 a ±30° donde suben con resorte cuatro edificios-función (se extruyen en z, nunca escalan),
+caminos que se dibujan, una luz que los recorre y la libreta en la plaza; tres polígonos por caja con una sola luz, sombras
+planas en una dirección, orden topológico de atrás hacia adelante; determinismo 6 de 6. Lo que falló: las tarjetas de nombre
+tocaban el titular y entre sí (se movió la ciudad y se achicó el titular).
+
+Para pilas de capas, torres de tecnología, bloques extruidos y diagramas que se abren y se arman, en Canvas 2D o SVG:
+- **Ejes**: isométrico verdadero = ejes del suelo a ±30° de la horizontal; «dimétrico 2:1» (pixel-art) = ±26,57°
+  (`atan(0.5)`). Se elige uno y no se mezclan. Baldosa (col, fila) → pantalla `(col − fila, col + fila)·(ancho/2, alto/2)`.
+- **Proyección paralela**: lo lejano **no** se achica. En three.js, `OrthographicCamera` (con `PerspectiveCamera` no es isométrico).
+- **Volumen con tres polígonos**: tapa más clara, cara izquierda media, derecha más oscura, con **una luz fija** en toda la
+  escena; es el truco que más pesa en la profundidad.
+- **Alturas**: subir por Z, nunca escalar (escalar rompe la proyección paralela). Explotado = el mismo apilado con una
+  separación `gap` compartida que se interpola; armar = llevar cada capa a su asiento. Construir de abajo arriba por
+  posición física (resorte con rebote ligero, 0,12–0,15 s entre capas), no por el orden del código.
+- **Cámara**: a lo sumo una deriva chica y lenta (unos grados, 6–12 s); un movimiento grande delata que es un plano.
 
 ## Verificar antes de entregar
 

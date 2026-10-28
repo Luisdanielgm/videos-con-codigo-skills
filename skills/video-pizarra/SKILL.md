@@ -72,6 +72,26 @@ en cualquier máquina y la más rápida de revisar (una captura tarda milisegund
   conexiones y decirlo en el código.
 - Misma zona útil que las otras técnicas: título arriba a la izquierda, subtítulos en la franja de abajo.
 
+## Recetas de `iart-ai` (diagramas, infografía, pizarra con mano, láminas; MIT)
+
+- **Divulgación progresiva en diagramas**: nodos → aristas → rótulos, nunca todo junto; el elemento activo a opacidad 1 y
+  el resto a ≈ 0,35 (foco y contexto); cada paso se sostiene 0,5–1,5 s; la arista se dibuja con `p` (como `stroke-dashoffset`
+  de 1 a 0) en 0,4–0,7 s y el dato que fluye es un punto sobre la ruta.
+- **Infografía animada**: primero se diseña el **cuadro final estático** y equilibrado (una idea central, 3–5 datos, 30–90 s);
+  el orden de aparición es la jerarquía: título solo → ícono (rebote con resorte poco amortiguado) → cifra (cuenta,
+  `easeOutCubic`) → rótulo (sin drama) → conector que se dibuja y lleva el ojo al siguiente. Escalonado entre hermanos
+  de 0,2–0,33 s con la misma curva; **una sola cifra se mueve a la vez**; el cuadro completo queda quieto 2–3 s.
+- **Mano con marcador** (pizarra): la punta de la mano va **exactamente** en el punto del trazo que se dibuja (medir el
+  desfase de la punta una vez); la mano se levanta entre trazos y no se desliza por la pizarra vacía; los trazos se
+  dibujan en el orden en que lo haría una mano (abiertos, continuos, sólo se corta donde se levantaría el lápiz); los
+  rellenos entran **después** del contorno; el trazo largo va lineal o casi (ease-in-out hace que el marcador dé tirones);
+  un solo modo de borrar (siempre barrido de izquierda a derecha, o dibujar al revés); un dibujo por frase de la voz y
+  la palabra que se nombra termina de escribirse al decirse. Comprobar con una captura **a mitad de un trazo**.
+- **Láminas y presentaciones**: entrada de elemento = aparecer + subir 12–24 px en 0,25–0,5 s con 0,15–0,4 s entre viñetas;
+  nada de volar, girar, rebotar ni máquina de escribir (compiten con la voz); título 56–80 px y cuerpo ≥ 28–32 px a 1080p;
+  contenido dentro del 90 % central; si hace falta una nota de 16 px, se parte en dos láminas; transición fuerte sólo
+  entre secciones.
+
 ## Verificar
 
 - Las capturas no muestran los defectos de la lista de `exportar-video`.
@@ -83,7 +103,8 @@ en cualquier máquina y la más rápida de revisar (una captura tarda milisegund
   capas que se funden con `pz.capa`.
 - **Una mano con marcador** que sigue la punta del trazo (imagen recortada como sticker, ver abajo) y un
   **sonido real de marcador** mientras dibuja.
-- Narrador con Supertonic y canción bajo la voz, como en `video-html-canvas`; 60 fps con `--fps 60`.
+- Narrador con Supertonic y canción bajo la voz, como en `video-html-canvas`.
+- `FPS = 30` está fijo en `pizarra.py`: pasarlo a parámetro para exportar a 60.
 
 ## Herramientas externas (opcional)
 
@@ -100,6 +121,20 @@ Resultado: `04-explicativo-narrado/<video>/` (`narrar.py`, `escena.py`, `tiempos
 `efectos.json`, `mezcla.json`) y el MP4 en `render/04-explicativo-narrado_<video>.mp4`. No hay ejemplo
 publicado (el original explicaba la seguridad de un producto propio, con datos internos); abajo está cómo se
 arma cada archivo.
+
+### Segundo motor: ManimGX
+
+La misma escena (`from motor_manim import *`) corre con **ManimGX** (Rust + wgpu; venv aparte `<venv-manimgx>`, Python
+3.13): `python herramientas/render_gx.py <escena.py> <Clase> [-o salida.mp4] [--fps 30] [-r 1920x1080]` (`VIDEOS_MOTOR=gx` cambia el
+import). Medido en una escena de diagramas de 5:44 (con carga de otros procesos): **134 s contra 611 s** (4,6×), RAM pico 1.100 MB contra 644,
+disco ~60 MB contra 368, SSIM 0,963, `efectos.json` a ≤ 0,036 s. Compatibilidad probada también con una escena de ejes (`Axes`, `always_redraw`,
+tablas): compila sin cambios, 124 efectos a ≤ 0,017 s. **Elegir GX** para una escena larga de 2D que se renderiza de una vez; **ManimCE**
+si hace falta el render por partes (`-n`), LaTeX o 3D ya probado. Salida a cuadros fijos (GX se salta los cuadros quietos y `render_gx.py`
+los repite). No usar `self.say` (manda texto a fal.ai). Su `inspect` marca «problemas» de maquetación: los de altura de glifos (`−`, `=`, `…`)
+son falsos. `render_gx.py --probar`: 6 ok, mutado. **Medido con la PC vacía (la escena de ejes, 1920×1080 a 30 fps)**: ManimCE 495,6 s y 666 MB contra
+ManimGX 196,1 s (**2,5×**, con la conversión a cuadros fijos) y 1.063 MB; con `Axes` y `always_redraw` la ventaja es menor que en la escena de
+diagramas (4,6×). El render por partes (`-n`) y el 60 fps a 1080p sólo están en ManimCE: un informe de 2:55 con 155 animaciones tardó
+3 min a 720p30 y ~9 min a 1080p60 con ManimCE.
 
 ### Qué hace falta
 
@@ -153,6 +188,20 @@ en las formas, y se rehízo con estas reglas:
    achica un grupo). Lo que se encima a propósito (un sello, una tachadura) se marca con `encima(m)`. Al terminar
    imprime «ok»/«FALLA» por frase y, si hay fallas, **la escena se cae antes de juntar el video**. En el
    original encontró lo mismo que se había visto a ojo (cabecera sobre el borde de la ventana, textos cortados).
+4. **Pantalla nunca quieta y portada**. Medido con `critico.py`: un video de informe daba 14,7 s quietos cada
+   30 s (tramos de hasta 3,3 s sin un píxel distinto) y empezaba en negro. Ahora la escena base es un
+   `MovingCameraScene` y la cámara **flota**: un círculo de .04 unidades que pasa por el centro, alejándose lo justo
+   (≤ 2 %) para que nada del cuadro original quede afuera, a .08 unidades/s (lo mínimo que el MP4 deja ver). Flota
+   durante cada animación (así no quedan cuadros quietos en sus bordes suaves) y durante las esperas de más de
+   `RESPIRA_MIN` (0,5 s), **salvo en las pausas de voz** (≥ 400 ms entre frases de `tiempos.json`, la misma regla de
+   `critico.py --quietos`): ahí sí queda quieta. Entre una espera y otra la cámara queda donde estaba: no hay saltos.
+   No cambia posiciones ni tiempos (el control y `efectos.json` dan lo mismo). El **cuadro 0 es una portada**
+   (`TITULO = "título"` o `("título", "subtítulo")`; sin él, el nombre de la carpeta) que se va en ≤ 0,5 s con la
+   primera animación. En la escena de prueba (15 s, 720p30): congelado 14,07 → 0,00 s cada 30 s, tramo más largo
+   2,60 → 0,00 s, primer cuadro negro → 151 % de detalle.
+   **Apagar**: `RESPIRA = False` y/o `PORTADA = False` en la clase (vuelve exacto a lo de antes); una sola espera
+   quieta: `self.wait(d, respira=False)`. Si el video necesita otra respiración (un parpadeo del elemento que se
+   explica, el número que sigue contando), se pone en la escena y se apaga esta.
 
 ### Pasos
 
@@ -167,12 +216,14 @@ en las formas, y se rehízo con estas reglas:
    `"duracion"` = total de la voz + la tabla) → `.venv/Scripts/python herramientas/mezclar.py 04-explicativo-narrado/<video>`.
 5. Final: `--resolution 1920,1080 --frame_rate 60` y juntar: `ffmpeg -i <Escena>.mp4 -i mezcla.wav -map 0:v
    -map 1:a -c:v copy -c:a aac -b:a 192k -shortest render/04-explicativo-narrado_<video>.mp4`.
-6. `herramientas/saltos.py` sobre el MP4.
+6. `herramientas/saltos.py` sobre el MP4, y `.venv/Scripts/python herramientas/critico.py render/<video>.mp4
+   --quietos 04-explicativo-narrado/<video>/tiempos.json` (congelado, primer cuadro, sonido).
 
 ### Verificar
 
-- El control dice `0 FALLA` en todas las frases, y `<venv-manim>/Scripts/python herramientas/motor_manim.py --probar`
-  da `12 ok, 0 FALLA` (el control se rompe a propósito y tiene que encontrar cada caso).
+- El control dice `0 FALLA` en todas las frases, y `<venv-manim>/Scripts/python herramientas/motor_manim.py --probar` da 18 ok (12 del control de textos y 6
+  de la respiración: el cuadro original siempre cabe, se aleja ≤ 2 %, se mueve lo bastante; cada guardia tiene su
+  caso roto).
 - El MP4 dura lo mismo que `mezcla.json → duracion`, sin pantallas vacías más de ~1 s mientras hay voz (salvo
   justo después de un cambio de capa).
 - Ningún cuadrado blanco (glifo faltante) ni número de LaTeX.

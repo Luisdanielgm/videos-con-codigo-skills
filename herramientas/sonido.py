@@ -228,5 +228,79 @@ def main(carpeta):
     print(f"mezcla.wav: {N / SR:.1f}s, {len(cfg['pistas'])} pistas")
 
 
+def probar():
+    """Regla: una guardia nueva se rompe a propósito antes de creerle. Voz de 6 s (un tono de 440 Hz entre 1 y 3 s) y dos frases
+    en tiempos.js. Los generadores `viento` y `whoosh` se cambian por una constante (1.0) para que lo que la mezcla le hace al
+    fondo y a los efectos se lea exacto en `mezcla − voz`: fondo × 0,22 y efectos × 0,25, bajados por la voz."""
+    import tempfile
+    g = globals()
+    guardado = {k: g[k] for k in ("viento", "whoosh")}
+    casos = []
+
+    def caso(nombre, obtenido, esperado):
+        casos.append(obtenido == esperado)
+        print(f"  {'ok   ' if obtenido == esperado else 'FALLA'} {nombre}: {obtenido!r}" + ("" if obtenido == esperado else f" (debía ser {esperado!r})"))
+
+    def nivel(r, a, b):
+        return float(np.mean(np.abs(r[int(a * SR):int(b * SR)])))
+
+    try:
+        g["viento"] = g["whoosh"] = lambda n: np.ones(n)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            t = np.arange(6 * SR) / SR
+            voz = np.where((t >= 1) & (t < 3), .4 * np.sin(2 * np.pi * 440 * t), 0).astype(np.float32)
+            sf.write(tmp / "narracion.wav", voz, SR)
+            (tmp / "tiempos.js").write_text('window.TIEMPOS = {"seg": {"a": {"inicio": 1, "dur": 2}, "b": {"inicio": 3.5, "dur": 2}}};', encoding="utf-8")
+
+            def correr(pistas, v=None):
+                if v is not None:
+                    sf.write(tmp / "narracion.wav", v.astype(np.float32), SR)
+                (tmp / "sonido.json").write_text(json.dumps({"pistas": pistas}), encoding="utf-8")
+                main(tmp)
+                m, sr = sf.read(tmp / "mezcla.wav", dtype="float32")
+                v0, _ = sf.read(tmp / "narracion.wav", dtype="float32")
+                return m, v0, sr
+
+            fondo = {"tipo": "viento", "desde": "a", "hasta": "fin", "vol": .5, "entrada": 0, "salida": 0}
+            m, v0, sr = correr([fondo])
+            r = m - v0
+            caso("mezcla.wav mono a 24 kHz y del largo de la voz", (sr, m.shape), (24000, v0.shape))
+            caso("el fondo entra a 0,22 de su volumen donde nadie habla (0,5 × 0,22)", abs(nivel(r, 4.0, 5.9) - .11) < .005, True)
+            caso("la voz baja el fondo (con voz, menos de la mitad que sin ella)", nivel(r, 2.0, 2.8) < .5 * nivel(r, 4.0, 5.9), True)
+            caso("antes de que empiece la pista no hay fondo", nivel(r, .1, .9) < .001, True)
+            caso("`hasta: fin` llega al final de la voz", abs(nivel(r, 5.85, 5.99) - .11) < .01, True)
+
+            m, v0, _ = correr([fondo, {"tipo": "silencio", "desde": "b", "hasta": "b", "vol": 0, "caida": .1}])
+            r = m - v0
+            caso("la pista `silencio` apaga el fondo en su frase", nivel(r, 4.3, 5.2) < .003, True)
+            caso("y el fondo vuelve después", abs(nivel(r, 5.7, 5.95) - .11) < .01, True)
+
+            efecto = {"tipo": "whoosh", "en": "b", "f": .5, "t": .25, "dur": 1, "vol": 1, "entrada": 0, "salida": 0}
+            m, v0, _ = correr([efecto])
+            r = np.abs(m - v0)
+            primero = int(np.argmax(r > .01)) / SR
+            caso("`en` + `f` + `t` ubican el efecto (3,5 + 2 × 0,5 + 0,25 = 4,75 s, ±20 ms)", abs(primero - 4.75) < .02, True)
+            caso("el efecto entra a 0,25 de su volumen (voz callada)", abs(nivel(r, 4.8, 5.7) - .25) < .01, True)
+
+            fuerte = (.9 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+            m, _, _ = correr([{**efecto, "vol": 3}, {**fondo, "vol": 3}], fuerte)
+            caso("el pico nunca pasa de 0,95 (se baja, no se recorta)", float(np.abs(m).max()) <= .951, True)
+
+            sf.write(tmp / "narracion.wav", voz[::2], SR // 2)
+            try:
+                main(tmp)
+                detalle = "no falló"
+            except AssertionError:
+                detalle = "AssertionError"
+            caso("una narración a otra frecuencia de muestreo se rechaza", detalle, "AssertionError")
+    finally:
+        g.update(guardado)
+    print(f"PRUEBA {'PASA' if all(casos) else 'FALLA'} ({sum(casos)} de {len(casos)})")
+    return all(casos)
+
+
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--probar"]:
+        sys.exit(0 if probar() else 1)
     main(sys.argv[1] if len(sys.argv) > 1 else ".")

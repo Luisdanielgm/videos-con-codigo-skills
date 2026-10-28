@@ -1,5 +1,7 @@
 # Entorno principal (.venv, Python 3.12). Versiones con las que se probó todo.
-# Supertonic y Manim van en entornos aparte (ver README).
+# Supertonic, Manim, ManimGX y el de visión de la técnica 27 van en entornos aparte (ver README).
+# Entorno de visión (<venv-vision>), probado con: faster-whisper==1.2.1 mediapipe==1.1.1
+#   opencv-python-headless==5.0.0.93 numpy==2.5.4
 numpy==2.5.3
 scipy==1.18.1
 pillow==12.3.0

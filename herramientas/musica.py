@@ -239,6 +239,82 @@ def muestras(carpeta):
     print(f"{len(EFECTOS)} efectos en {carpeta}")
 
 
+def probar():
+    """Regla: una guardia nueva se rompe a propósito antes de creerle. Tres pistas cortas en una carpeta temporal: una con todo
+    (duración, nivel de plataforma, pulsos.js), una con el silencio antes del golpe y otra con una parte que entra a mitad.
+    El azar es de módulo (`rng`): la repetición se prueba con dos procesos aparte."""
+    import hashlib
+    import subprocess
+    import tempfile
+    casos = []
+
+    def caso(nombre, obtenido, esperado):
+        casos.append(obtenido == esperado)
+        print(f"  {'ok   ' if obtenido == esperado else 'FALLA'} {nombre}: {obtenido!r}" + ("" if obtenido == esperado else f" (debía ser {esperado!r})"))
+
+    def pista(carpeta, cfg):
+        carpeta.mkdir()
+        (carpeta / "musica.json").write_text(json.dumps(cfg), encoding="utf-8")
+        main(carpeta)
+        x, sr = sf.read(carpeta / "musica.wav")
+        return x, sr
+
+    todo = ["bombo", "hat", "caja", "bajo", "pad", "arpegio"]
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        cfg = {"bpm": 120, "compases": 4, "secciones": [{"desde": 0, "hasta": 4, "partes": todo}],
+               "efectos": [{"tipo": "clic", "pulso": 4}]}
+        x, sr = pista(tmp / "a", cfg)
+        caso("44,1 kHz estéreo", (sr, x.shape[1]), (44100, 2))
+        caso("duración: inicio + compases + 2,5 s de cola", x.shape[0], int((.2 + 4 * 4 * .5 + 2.5) * SR))
+        caso("sin NaN ni infinitos", bool(np.isfinite(x).all()), True)
+        mono = x.mean(axis=1)
+        pico, rms = float(np.abs(x).max()), 20 * np.log10(np.sqrt(np.mean(mono ** 2)))
+        caso("picos por debajo de -2 dBFS (.79)", pico <= .8, True)
+        caso("volumen de plataforma: RMS entre -22 y -16,5 dBFS", -22 <= rms <= -16.5, True)
+        p = json.loads((tmp / "a" / "pulsos.js").read_text(encoding="utf-8").split("=", 1)[1].strip().rstrip(";"))
+        caso("pulsos.js: bpm, inicio y compases de la grilla", (p["bpm"], p["inicio"], p["compases"]), (120, .2, 4))
+        caso("pulsos.js: el total coincide con la pista", abs(p["total"] * SR - x.shape[0]) < 2, True)
+
+        # un impacto sobre un hi-hat: pico alto con poco volumen medio; el tope de picos manda sobre el volumen de plataforma
+        agudo = {"bpm": 120, "compases": 4, "secciones": [{"desde": 0, "hasta": 4, "partes": ["hat"]}],
+                 "efectos": [{"tipo": "impacto", "pulso": 4}]}
+        x, _ = pista(tmp / "e", agudo)
+        caso("con picos altos el tope de -2 dBFS manda (RMS baja de -17)",
+             (float(np.abs(x).max()) <= .8, 20 * np.log10(np.sqrt(np.mean(x.mean(axis=1) ** 2))) < -17.5), (True, True))
+
+        golpe = {"bpm": 120, "compases": 4, "silencio_antes": [8], "secciones": [{"desde": 0, "hasta": 4, "partes": ["bombo", "hat"]}]}
+        x, _ = pista(tmp / "b", golpe)
+        i = int((.2 + 8 * .5) * SR)
+        caso("0,1 s de silencio total antes del golpe", float(np.abs(x[i - int(.1 * SR):i]).max()) < 1e-6, True)
+        j = int((.2 + 7 * .5) * SR)
+        caso("el pulso anterior sí suena", float(np.abs(x[j - int(.1 * SR):j]).max()) > .01, True)
+
+        medio = {"bpm": 120, "compases": 4, "secciones": [{"desde": 2, "hasta": 4, "partes": ["bombo"]}]}
+        x, _ = pista(tmp / "c", medio)
+        entra = int((.2 + 8 * .5) * SR)
+        caso("una parte que entra en el compás 2 no suena antes", float(np.abs(x[int(.25 * SR):entra - int(.01 * SR)]).max()) < 1e-6, True)
+        caso("y suena desde ahí", float(np.abs(x[entra:entra + int(.2 * SR)]).max()) > .05, True)
+
+        try:
+            efecto("tipo-que-no-existe", 4, .5)
+            lanzo = False
+        except ValueError:
+            lanzo = True
+        caso("un efecto desconocido se rechaza (no es silencio)", lanzo, True)
+
+        hashes = []
+        for k in ("d1", "d2"):
+            (tmp / k).mkdir()
+            (tmp / k / "musica.json").write_text(json.dumps(cfg), encoding="utf-8")
+            subprocess.run([sys.executable, str(Path(__file__).resolve()), str(tmp / k)], check=True, capture_output=True)
+            hashes.append(hashlib.sha256((tmp / k / "musica.wav").read_bytes()).hexdigest())
+        caso("dos procesos dan la misma pista (determinista)", hashes[0] == hashes[1], True)
+    print(f"PRUEBA {'PASA' if all(casos) else 'FALLA'} ({sum(casos)} de {len(casos)})")
+    return all(casos)
+
+
 if __name__ == "__main__":
     if sys.argv[1:2] == ["--muestras"]: muestras(sys.argv[2])
+    elif sys.argv[1:] == ["--probar"]: sys.exit(0 if probar() else 1)
     else: main(sys.argv[1] if len(sys.argv) > 1 else ".")

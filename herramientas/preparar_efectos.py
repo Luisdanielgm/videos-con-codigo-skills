@@ -3,14 +3,16 @@
 Uso: python herramientas/preparar_efectos.py            -> procesa y verifica el banco
      python herramientas/preparar_efectos.py --romper   -> prueba la guardia con casos malos a propósito
 
-Antes hay que bajar los originales (no vienen en el repositorio: su licencia no deja redistribuirlos sueltos):
-  - Mixkit: cada fila de herramientas/seleccion.tsv (id, categoría, nombre, página) se baja de
-    https://assets.mixkit.co/active_storage/sfx/<id>/<id>.wav a recursos/efectos/mixkit/<categoría>/<nombre>.wav
-  - Kenney (CC0): los zip de KENNEY_ZIP, descomprimidos en recursos/efectos/kenney/<paquete>/ (con su carpeta Audio/).
-El resultado queda en recursos/efectos/listos/<categoría>/<nombre>.wav + recursos/efectos/indice.json, que
-usan mezclar.py, pista.py y motor_manim.py.
+Mixkit: la lista va en seleccion.tsv (id, categoría, nombre, página): cada fila se baja de
+https://assets.mixkit.co/active_storage/sfx/<id>/<id>.wav a recursos/efectos/mixkit/<categoría>/<nombre>.wav (no vienen en
+el repositorio: su licencia no deja redistribuirlos sueltos). Kenney: los 25 elegidos a mano (KENNEY, CC0: los zip de KENNEY_ZIP, descomprimidos en
+recursos/efectos/kenney/<paquete>/) y todos los demás .ogg de los tres paquetes, con nombre y
+categoría por su prefijo (KENNEY_PREFIJO): el banco de 53 sonaba igual en todos los videos.
+El resultado queda en recursos/efectos/listos/<categoría>/<nombre>.wav + recursos/efectos/indice.json, que usan
+mezclar.py, pista.py y motor_manim.py.
 """
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -65,6 +67,34 @@ KENNEY = [
     ("impact-sounds", "impactBell_heavy_000.ogg", "impacto", "kenney-bell-heavy-000"),
     ("impact-sounds", "impactPlank_medium_000.ogg", "impacto", "kenney-plank-medium-000"),
 ]
+# el resto de los paquetes: categoría por el prefijo del archivo (impactX_… → impacto)
+KENNEY_PREFIJO = {
+    "click": "interfaz", "select": "interfaz", "switch": "interfaz", "toggle": "interfaz", "tick": "interfaz",
+    "scroll": "interfaz", "rollover": "interfaz", "mouseclick": "interfaz", "mouserelease": "interfaz", "back": "interfaz",
+    "close": "interfaz", "open": "interfaz", "question": "interfaz",
+    "confirmation": "exito", "glass": "exito", "pluck": "exito", "bong": "exito",
+    "error": "error", "glitch": "error", "maximize": "transicion", "minimize": "transicion", "scratch": "transicion",
+    "drop": "pop", "impact": "impacto", "footstep": "pasos",
+}
+
+
+def kenney_resto():
+    """(paquete, archivo, categoría, nombre) de cada .ogg que no está en KENNEY, con el nombre al estilo de los elegidos."""
+    elegidos = {(p, a) for p, a, _, _ in KENNEY}
+    resto = []
+    for paq in KENNEY_PAG:
+        for ogg in sorted((BASE / "kenney" / paq / "Audio").glob("*.ogg")):
+            if (paq, ogg.name) in elegidos:
+                continue
+            prefijo = re.match(r"[a-z]+", ogg.stem).group(0)
+            if paq == "ui-audio":
+                nombre = f"kenney-ui-{ogg.stem}"                                              # click1 → kenney-ui-click1
+            elif prefijo == "impact":
+                nombre = "kenney-" + re.sub(r"^impact", "", ogg.stem).lower().replace("_", "-")   # impactPunch_heavy_000
+            else:
+                nombre = "kenney-" + ogg.stem.lower().replace("_", "-")                       # click_001, footstep_wood_000
+            resto.append((paq, ogg.name, KENNEY_PREFIJO[prefijo], nombre))
+    return resto
 
 
 def entradas():
@@ -81,21 +111,25 @@ def entradas():
             "url_audio": f"https://assets.mixkit.co/active_storage/sfx/{ide}/{ide}.wav",
             "licencia": LIC_MIXKIT,
         })
-    for paq, arch, cat, nombre in KENNEY:
+    resto = kenney_resto()
+    for paq, arch, cat, nombre in KENNEY + resto:
         lista.append({
             "nombre": nombre, "categoria": cat, "fuente": "kenney",
             "src": BASE / "kenney" / paq / "Audio" / arch,
             "original": f"kenney/{paq}/Audio/{arch}",
             "url": KENNEY_PAG[paq], "url_audio": KENNEY_ZIP[paq],
             "licencia": LIC_KENNEY,
+            # muchos llegan a 0 dBFS y el remuestreo los pasa del tope: −1 dB. El que igual falla queda fuera del índice
+            **({"ganancia": -1, "opcional": True} if (paq, arch, cat, nombre) in resto else {}),
         })
     return lista
 
 
-def convertir(src, dst):
+def convertir(src, dst, ganancia=0):
     dst.parent.mkdir(parents=True, exist_ok=True)
+    filtro = (f"volume={ganancia}dB," if ganancia else "") + FILTRO
     subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-threads", "1", "-y",
-                    "-i", str(src), "-af", FILTRO, "-c:a", FORMATO, str(dst)], check=True)
+                    "-i", str(src), "-af", filtro, "-c:a", FORMATO, str(dst)], check=True)
 
 
 def medir(ruta):
@@ -163,12 +197,17 @@ def romper():
 def main():
     if "--romper" in sys.argv:
         sys.exit(0 if romper() else 1)
-    indice, malos = [], 0
+    indice, malos, fuera = [], 0, 0
     for e in entradas():
         dst = BASE / "listos" / e["categoria"] / f"{e['nombre']}.wav"
-        convertir(e["src"], dst)
+        convertir(e["src"], dst, e.get("ganancia", 0))
         m = medir(dst)
         f = juzgar(m)
+        if f and e.get("opcional"):                   # del resto de Kenney: no entra (clics de menos de 50 ms, o satura)
+            dst.unlink()
+            fuera += 1
+            print(f"fuera  {e['categoria']}/{e['nombre']}  {'; '.join(f)}")
+            continue
         malos += bool(f)
         print(f"{'ok' if not f else 'FALLA'}  {e['categoria']}/{e['nombre']}  {m['dur']:.3f} s  RMS {m['rms_db']:.1f}  "
               f"pico {m['pico_db']:.2f} dBFS @ {m['pico_s']:.3f} s  {'; '.join(f)}")
@@ -181,7 +220,7 @@ def main():
         })
     indice.sort(key=lambda r: (r["categoria"], r["fuente"], r["nombre"]))
     (BASE / "indice.json").write_text(json.dumps(indice, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"total: {len(indice)} efectos, {len(indice) - malos} ok, {malos} FALLA")
+    print(f"total: {len(indice)} efectos, {len(indice) - malos} ok, {malos} FALLA, {fuera} del resto de Kenney fuera del índice")
     sys.exit(1 if malos else 0)
 
 

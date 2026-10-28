@@ -1,9 +1,9 @@
 # Creando skills para crear videos con código
 
-Veinte técnicas para hacer videos **sólo con código**: un agente de programación escribe el guion, la
-narración, la animación y la mezcla, y ffmpeg arma el MP4. No se usa ningún editor de video ni se genera video
-con IA: cada cuadro sale de un programa (Canvas 2D, three.js, un shader, Python con cairo o Manim, Blender por
-script).
+Veintisiete técnicas para hacer videos **sólo con código**, más dos acabados, tres subdirectores por área y skills
+de apoyo: un agente de programación escribe el guion, la narración, la animación y la mezcla, y ffmpeg arma el
+MP4. No se usa ningún editor de video ni se genera video con IA: cada cuadro sale de un programa (Canvas 2D,
+three.js, un shader, Python con cairo o Manim, Blender por script, p5.js).
 
 Todo esto se hizo con **Claude Code (la app de escritorio) con el modelo Claude Opus 5.5**. Las skills están
 pensadas para Claude Code, pero no dependen de él: **cualquier agente puede usarlas leyendo el `SKILL.md`
@@ -15,15 +15,16 @@ Licencia: MIT para las skills, las herramientas y el código de los ejemplos (ve
 ## Qué hay aquí
 
 ```
-skills/<nombre>/SKILL.md    las 25 skills (una por técnica + las de base)
-herramientas/               lo que usan las skills: reproductor, narración, mezcla, exportación, motores
+skills/<nombre>/SKILL.md    las 38 skills (una por técnica + acabados, directores, base y apoyo)
+herramientas/               lo que usan las skills: reproductor, narración, mezcla, exportación, motores y
+                            las guardias de revisión (crítico ciego, determinismo, verificar el MP4…)
 01-html-canvas/red-neuronal/ … 20-generativo/semilla/   código de los ejemplos publicados
 datos/                      dígitos de UCI optdigits (para la técnica 3)
 ejemplos/                   los MP4 de ejemplo y su LEEME.md con las licencias de terceros
 requirements.txt            el entorno de Python principal
 ```
 
-## Las 20 técnicas
+## Las 27 técnicas
 
 | # | Técnica | Skill | Ejemplo publicado |
 |---|---|---|---|
@@ -47,16 +48,29 @@ requirements.txt            el entorno de Python principal
 | 18 | Épica histórica en dibujo lineal | `video-epica-lineal` | `18-epica-lineal/historia-del-vuelo/` |
 | 19 | Ensayo cinematográfico | `video-ensayo` | `19-ensayo/las-cosas-pequenas/` |
 | 20 | Generativo por semilla (una palabra decide todo) | `video-generativo` | `20-generativo/semilla/` |
+| 21 | Galería de estilos: un personaje recorre 15–20 cuadros de estilos por época en una sola toma | `video-galeria-estilos` | — |
+| 22 | Ciencia con datos reales: una estructura de la PDB átomo por átomo, cifras medidas por script | `video-ciencia-real` | — |
+| 23 | Dibujo animado pintado a mano (p5.brush): hoja de modelo, poses, tinta que tiembla con semilla | `video-dibujo-animado` | — |
+| 24 | Juego jugable grabado: un programa juega una partida simulada una vez con semilla | `video-juego` | — |
+| 25 | Explicativo explorable: la misma escena con cálculo real se manipula o se graba | `video-explorable` | — |
+| 26 | Máquina isométrica cuyo funcionamiento es el concepto (2D en canvas o 3D real) | `video-maquina-isometrica` | — |
+| 27 | Material real (clips propios o de stock) con motion graphics que reaccionan a lo que se ve y se dice | `video-real-motion` | — |
+
+Además, un segundo acabado sobre cualquier MP4, como el riso: **ASCII que sigue la forma** (`acabado-ascii`), en
+fósforo, ámbar, papel o color.
 
 Las técnicas sin ejemplo publicado se hicieron sobre material que no se puede publicar (productos propios, un
-libro con derechos, cuentas reales); sus skills describen el método completo y la estructura de archivos.
+libro con derechos, cuentas reales, clientes); sus skills describen el método completo y la estructura de archivos.
 
 **Skills de base** (se leen además de la de la técnica):
 
 | Skill | Para qué |
 |---|---|
 | `director-de-video` | Elegir la técnica de cada tramo y combinar 2–3 en un mismo video. Leerla primero. |
-| `video-lanzamiento` | Base de los comerciales (técnicas 8–15): material verdadero, pulsos, música, reglas. |
+| `director-educacion` · `director-marketing` · `director-reportes` | Subdirectores por área, entre `director-de-video` y las técnicas: proponen técnicas y oficio para explicar, para vender un producto o para rendir cuentas de un trabajo, sin restringir ninguna técnica. |
+| `adecuaciones-cognitivas` | Apoyo de `director-educacion`: diseño universal (DUA) y adecuaciones por perfil (neurodivergencia y discapacidad), sólo si se piden. |
+| `video-medico` | Receta (técnicas 2 + 4) para un explicativo médico con precisión: hueso real de BodyParts3D, cifras del implante verificadas, una fuente por frase y revisión de un médico antes de publicar. |
+| `video-lanzamiento` | Base de los comerciales (técnicas 8–15 y 27): material verdadero, pulsos, música, reglas. |
 | `video-historia` | Contar una escena con varias voces, ambiente y música. |
 | `narrar-guion` | `guion.json` → `narracion.wav` + `tiempos.js` con voces locales. |
 | `exportar-video` | Capturas, hoja de contacto, revisión visual y exportación a MP4. |
@@ -108,7 +122,14 @@ Según la técnica, además:
 
 | Para | Qué | Dónde |
 |---|---|---|
-| Técnica 4 con Manim | Manim Community 0.21 en un entorno aparte (`pip install manim soundfile`) | `video-pizarra` |
+| Técnica 4 con Manim | Manim Community 0.21 en un entorno aparte (`pip install manim soundfile`); las skills lo llaman `<venv-manim>` | `video-pizarra` |
+| Técnica 4 con ManimGX (opcional) | ManimGX en otro entorno aparte (`<venv-manimgx>`, o la variable `VIDEOS_VENV_GX`) para `herramientas/render_gx.py` | `video-pizarra` |
+| Técnica 2 con WebGPU (opcional) | three.js r186 (`three@0.186` de npm) en `herramientas/vendor/three-r186/` (no viene: sólo trae r170) | `video-threejs` |
+| Técnica 22 | Los mmCIF de la PDB (RCSB, CC0), que la skill baja | `video-ciencia-real` |
+| Técnica 23 | Nada más: p5.js y p5.brush vienen en `herramientas/vendor/p5/` | `video-dibujo-animado` |
+| Técnica 27 | Un entorno aparte (`<venv-vision>`) con `faster-whisper==1.2.1` (tiempo de cada palabra, `palabras.py`) y `mediapipe` + `opencv-python-headless` (recortar a la persona, `recortar_persona.py`, con el modelo `selfie_multiclass_256x256.tflite` en `modelos/vision/`); ACE-Step 1.5 opcional en `externos/ace-step/` | `video-real-motion` |
+| Receta médica | Las mallas de BodyParts3D (DBCLS, CC BY) | `video-medico` |
+| Revisión de la voz (opcional) | Una cuenta de ElevenLabs en `ELEVENLABS_API_KEY` (`auditar_voz.py`; su `--probar` no la llama) | `narrar-guion` |
 | Técnica 6 | Blender 4.5 LTS portable (download.blender.org, verificar sha256) y clips BVH de CMU (`python herramientas/bajar_mocap.py`) | `video-blender` |
 | Técnica 11 | Natural Earth `ne_110m_land.geojson` (repositorio `nvkelso/natural-earth-vector`) | `video-datos-mapa` |
 | Técnica 14 | Node.js 22+ y `npx hyperframes@0.8.78` | `video-hyperframes` |
@@ -139,8 +160,9 @@ Nada de esto viene en el repositorio (está en `.gitignore`); cada quien lo crea
 | `biblioteca/` | Bibliotecas de personajes de Blender (`.blend`) | Se rearman por script |
 
 Variables de entorno: `VIDEOS_PARAMS` (parámetros de la página al exportar, p. ej. `fps=60&sub=4`),
-`VIDEOS_PUERTO` (puerto del servidor local, 8790 por omisión) y `VIDEOS_VOZ_PYTHON` (el Python del entorno de
-Supertonic, si no está en `externos/voz-env/`). La ruta de Blender va escrita en cada comando: cámbiala por la tuya.
+`VIDEOS_PUERTO` (puerto del servidor local, 8790 por omisión), `VIDEOS_VOZ_PYTHON` (el Python del entorno de
+Supertonic, si no está en `externos/voz-env/`), `VIDEOS_VENV_GX` (el entorno de ManimGX) y `ELEVENLABS_API_KEY`
+(opcional). Las claves se leen sólo de variables de entorno: ninguna va escrita en el código. La ruta de Blender va escrita en cada comando: cámbiala por la tuya.
 
 Fuentes: varios motores usan fuentes que trae Windows (Segoe UI y Segoe Print, Georgia, Bahnschrift, Cambria,
 Consolas). En Linux o macOS, instalar otras y cambiarlas donde lo dice cada skill.
@@ -153,6 +175,15 @@ python herramientas/navegador.py capturas 01-html-canvas/red-neuronal 5,40,90   
 .venv/Scripts/python 04-explicativo-narrado/red-neuronal/video.py --capturas 5,40     # cairo
 .venv/Scripts/python herramientas/saltos.py --probar                                  # ffmpeg y el detector de saltos
 ```
+
+Casi todas las herramientas traen su autoprueba (`--probar`): se rompen a propósito y tienen que atrapar cada
+caso. Las «FALLA» que imprimen son esos casos rotos; lo que cuenta es la línea final y el código de salida 0. Las
+guardias de revisión de un video son `critico.py` (crítico ciego sobre el MP4 final), `determinismo.py` (¿el
+cuadro depende del orden en que se dibuja?), `verificar_export.py` (¿el MP4 es el video de la página?; su prueba
+usa `ejemplos/18-epica-lineal_historia-del-vuelo.mp4` copiado a `render/`), `color_mp4.py` (etiqueta de color
+BT.709), `tabla_tomas.py` (la tabla de tomas antes del código), `subtitulos_tapan.py`, `sonido_repetido.py` y
+`metricas_video.py`. `iso3d.py --probar` lee dos ejemplos de la técnica 26 que no se publican: en este
+repositorio sus casos fallan.
 
 ## Videos de ejemplo
 
@@ -220,6 +251,10 @@ Sin `privado/` (en un clon de este repositorio), `--revisar` y `--probar` corren
 ## Créditos de terceros
 
 - **three.js** 0.170 (MIT, Three.js Authors): `herramientas/vendor/three.module.min.js`.
+- **p5.js** 2.3.4 (LGPL-2.1, Processing Foundation) y **p5.brush** 2.2.3 (MIT, Alejandro Campos):
+  `herramientas/vendor/p5/`, con sus licencias y `VERSION.txt` (sha256 de cada archivo).
+- **faster-whisper** (MIT) y **MediaPipe** (Apache 2.0), en el entorno aparte de la técnica 27; **ACE-Step** (opcional).
+- **RCSB PDB** (datos CC0) y **BodyParts3D** (DBCLS, CC BY), que las skills enseñan a bajar; no vienen aquí.
 - **HyperFrames** (HeyGen, Apache 2.0): framework de la técnica 14, se instala con `npx`.
 - **Manim Community** (MIT), **Blender** (GPL), **Playwright** (Apache 2.0), **ffmpeg** (LGPL/GPL).
 - **Voces**: Supertonic-3 (código MIT, modelo OpenRAIL-M, de Supertone), Kokoro (`kokoro-onnx`), Piper
@@ -233,4 +268,5 @@ Sin `privado/` (en un clon de este repositorio), `--revisar` y `--probar` corren
 - **Natural Earth** (dominio público) y **CMU Graphics Lab Motion Capture Database** (libre para cualquier uso;
   conversión a BVH de cgspeed).
 - Ideas y referencias de estilo tomadas de videos públicos en X, citadas en cada skill (@twoclipping, @rexan_wong,
-  @dirtman, @IterIntellectus, @danshipper, @MiaAI_lab, @scisterna, @prasenx, @aiehon_aya, @gcduncombe).
+  @dirtman, @IterIntellectus, @danshipper, @MiaAI_lab, @scisterna, @prasenx, @aiehon_aya, @gcduncombe y otras
+  que nombra cada skill).

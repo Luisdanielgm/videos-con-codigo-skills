@@ -65,6 +65,15 @@ Pantalla.video({
 - El texto de abajo tapaba el subtítulo de la página: ajustar el zoom o mover la nota.
 - Secciones con datos falsos o de otra etapa (equipo, ofertas) se borran del guion.
 - Que el cursor no tape lo que aprieta.
+- **Lección del crítico ciego (sobre «Libreta»)**: (1) `zoom` no limita la cámara: cerca del borde de la página asoman el
+  bisel, franjas negras o crema vacío. Encuadrar con `['camara', ...]` calculado (una función `enfoca()` que limita el
+  centro a la pantalla) y el sujeto en el 80 % de arriba (el rótulo ocupa del 83 % hacia abajo). (2) Las capturas tienen que
+  llenar el dispositivo: laptop ≥ 900 px de página; teléfono ≥ scroll + 2532 px y un margen de barra de estado (la isla tapa
+  el logo). (3) Un callout señala algo concreto (la fila, la insignia), nunca un hueco. (4) Cuadro 0 = composición terminada:
+  dispositivo ya puesto (`entra` en pulso negativo), título completo, y como el motor aclara desde negro en 0,4 s, pasar
+  `entradaNegra: false` a `Pantalla.video`. (5) Cada tramo mayor que ~0,5 s lleva cámara en movimiento (una `camara`
+  por pulso, que se suman sin cortes) y el cierre un acercamiento lento. Medir sin exportar: `critico.py` pide el MP4; para
+  adelantar, restar cuadro a cuadro (≥ 3 px con cambio > 8/255 a 30 fps).
 
 ## Verificar
 

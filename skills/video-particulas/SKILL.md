@@ -28,6 +28,18 @@ colores; títulos que entran palabra por palabra con resortes.
 - Cada partícula va de su punto en la forma A a su punto en la forma B con una curva por pulso (`Movimiento.tramo`),
   con un pequeño retraso por índice para que la forma «fluya».
 
+## Tipografía y cámara (reglas finas)
+
+- **El texto que sale se va antes de que entre el nuevo**: las partículas de la palabra vieja terminan de
+  deshacerse (o de volverse la nueva) antes de que la nueva se lea; nunca dos palabras legibles encimadas.
+- **Desfase de impresión de 2–4 px** (una copia de color corrida) **sólo en los impactos**, unos pocos
+  cuadros; el resto del tiempo, limpio.
+- **Letras revueltas con semilla**: el carácter sale de `Movimiento.azar(...)` con una semilla que combina la
+  del video, el número de letra y el instante de `Reproductor.cuadro(t)`; lo mismo para el ruido de cada
+  partícula. Nada de `Math.random()`.
+- **Cámara a la mitad de la velocidad que parece bien** (por omisión), movimientos de 1,5–3 s; la perspectiva
+  gira despacio y sólo se acelera en un golpe.
+
 ## Pasos
 
 1. Recortar el PNG del logo a su contenido (los PNG traen margen) antes de muestrear.
@@ -40,6 +52,16 @@ colores; títulos que entran palabra por palabra con resortes.
 - Con 6.000 partículas las letras se ven ralas: **9.000 a 2,4 px con `lighter`** queda bien.
 - Un parámetro sin definir (`textoFinal`) rompía la escena final: probar el último pulso siempre.
 - Recomprimir si el archivo queda pesado antes de entregar.
+
+## Cierre y vacíos (crítico ciego sobre «Libreta»)
+
+- **Nada de «polvo» ni de negro entre formas**: antes del logo la forma anterior se vuelve un remolino brillante que
+  se aprieta hacia el centro del nombre (el cuadro nunca queda casi vacío); sin fundido de entrada.
+- **Las partículas respiran en cada reposo** (1,5–3 px con fase propia, también en el origen de la transición para
+  que no salte) y el logo recibe un latido por pulso y una pasada de luz; un reposo sin movimiento cuenta como
+  congelado. El ícono del logo también es de partículas, no un dibujo plano.
+- **Bucle**: la última forma es la esfera del primer cuadro (`esfera(t - DUR)` da la misma pose en el último instante
+  que `esfera(t)` en 0); el cuadro 0 es la esfera ya formada, no un fundido. El rótulo legal sale antes de deshacer el logo.
 
 ## Verificar
 
